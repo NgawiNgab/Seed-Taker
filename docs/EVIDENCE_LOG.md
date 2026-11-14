@@ -1,0 +1,163 @@
+# Evidence Log
+
+Target: MCPE 1.26.62, arm64-v8a, LeviLauncher (Android).
+Classifications: CONFIRMED / INFERRED / HYPOTHESIS / UNKNOWN.
+
+| ID | Finding | Class | Evidence / derivation | To confirm / disprove |
+|----|---------|-------|------------------------|------------------------|
+| F-001 | BedrockTools module/registry/event/config/menu architecture as recorded in `docs/BEDROCKTOOLS_REFERENCE.md` | CONFIRMED | Direct source inspection of the BedrockTools clone (exact paths cited) | N/A (reference snapshot 2026-11-14) |
+| F-002 | Preloader APIs used by the skeleton (`resolveSignatures`, `resolveVtableFunction`, `hook`/`unhook`, `ModuleBuilder`, `submitDrawCommands`, `PL_REGISTER_MOD`, `ModContext`, `Logger`) exist with the assumed signatures | CONFIRMED | Direct header inspection of `LiteLDev/preloader-android` (`include/pl/*.hpp`) | N/A for current preloader `main`; re-check on build breakage |
+| F-003 | Skeleton frame pump (`eglSwapBuffers` detour -> `FrameEvent`) needs no game-binary knowledge | CONFIRMED | Source pattern: target resolved via `dlsym("eglSwapBuffers")` on system `libEGL.so` (BedrockTools `src/core/GameHooks.cpp`, `hookEgl`/`swapBuffersDetour`) | Runtime check on device still required (INFERRED until run) |
+| F-004 | BedrockTools provides no seed/LevelData/StartGamePacket support | CONFIRMED | Full-tree `grep -rni "seed"` + SDK header review; only unrelated matches | N/A |
+| F-005 | BedrockTools offsets/signatures apply to 1.26.62 | UNKNOWN (treated as inapplicable) | BedrockTools targets `1.26.6X.X`; no per-build equivalence evidence | Zaphkiel re-verification per value, if ever reused |
+| F-006 | Where the world seed lives in 1.26.62 (LevelData vs LevelSettings vs StartGamePacket vs other) and how to read it | UNKNOWN | No binary evidence yet | ST-001 (+ follow-ups): RTTI/vtable/struct findings on 1.26.62 `libminecraftpe.so` |
+| F-007 | Seed-Taker behavioral spec (Absolute Seed Taker: local + server recovery, spoof separation, confidence reporting) | CONFIRMED (as requirements) | User-stated 2026-11-14, recorded in `docs/SPEC.md` | N/A; feasibility per item is evidence-gated (H-001..H-003) |
+| H-001 | SP world seed is readable from client-side level objects (Level/LevelData/LevelSettings) | INFERRED (promoted ST-008: SP+MP converge on the same ctor → `+0x3b0`, readable via slot-8 getter; value-meaning pending runtime validation) | SP client owns the world; BedrockTools hooks `Level::initialize` which receives a `levelSettings` argument (`src/modules/hud/debugmenu.cpp`, `s_origLevelInitialize`) | ST-001/002: names found. ST-003: vtable mapped (F-024); `+0x3b0` int32 getter (slot 8) is the only int-shaped accessor — seed candidacy HYPOTHESIS. ST-004: write-external-only, no ctor writes (F-032). ST-005: single virtual caller fn `0x68b3158` (F-036). ST-006: reader found (`0x68b350c`→`0xe804a08`), setter writer still unknown (F-041/F-042). ST-007: `+0x3b0` IS ctor-written (ctor `0x11146b24` ← getter `0x10b1da08`); object = LevelData (F-045). ST-008: chain closed — `+0x3b0` = packet+0xA8 (F-048/F-049); seed-ness INFERRED-strong (F-051). Next: implementation approved 2026-11-14, initial impl underway (F-053..F-055); runtime validation follows the first CI build |
+| H-002 | Server-provided seed reaches the client in the Start Game packet (`Seed` / `LevelSettings`) | INFERRED | Public protocol docs: Start Game (0x0B) carries `Seed` (SignedVarInt, "seed used to generate the world", 32-bit) and `Settings: LevelSettings` — wiki.vg Bedrock Protocol, minecraft.wiki Bedrock_Edition_protocol/Packets, Mojang bedrock-protocol-docs changelog (serialization drifts per version). ST-003: vtable mapped (F-023); read path is cereal-driven; payload base `+0x30`, getId `0x0B` CONFIRMED (F-026/F-027) | ST-004: dispatcher slot[2] → handler slot 37 (F-028). ST-005: slot 37 = StartGame handle; packet-field map, no by-value seed read (F-033/F-034); two LevelData-region callees (F-035). ST-006: consumers resolved — `+0x4e0`=16B blob (dead end), `+0x4c8`→ctor `0x11146b24`, `+0x50c`=u16 (dead end) (F-037/F-039/F-040). ST-007: MP chain reconstructed — payload → `0x9b56e60` → src → ctor → LevelData.+0x3b0 (F-047). ST-008: mechanism COMPLETE — packet+0xA8 → src+0x78 → LevelData.+0x3b0 traced (F-048/F-049); meaning INFERRED-strong (F-051). Old ST-009 (sig-gen) cancelled (backup only, F-052). New ST-009 PROPOSED: Level::initialize address hunt (activates object path; F-054). Implementation approved 2026-11-14, initial impl underway |
+| H-003 | When a server spoofs the client-visible seed (e.g. `0`), the true world-generation seed may never reach the client (server-authoritative worldgen) | HYPOTHESIS | Central research question per SPEC; consistent with server-sent chunks, but unproven for 1.26.62 | Trace seed-derived client data (biome/chunk/feature RNG inputs) or prove absence; may conclude UNAVAILABLE for MP-spoofed |
+| F-008 | Initial implementation builds (`xmake`, NDK r28c, arm64) + `SeedTaker.levipack` packages | CONFIRMED | CI `build` green 2026-11-14 (PR #1, commit `818b94c`): compile + link + levipack + artifact upload. Two failures fixed en route, see F-057 | On-device runtime validation (IMPLEMENTATION_PLAN.md protocol) |
+| F-009 | BedrockTools packet-interception pattern (hook packet `handle`/`read` via signature or RTTI+vtable slot) | CONFIRMED | `Signatures.cpp`: `PlayerListPacketRead` via RTTI `16PlayerListPacket` slot 17; `ResourcePacksInfoPacketHandle`/`ResourcePackStackPacketHandle` via patterns; consumed in `chatheads.cpp`, `forceglobalrp.cpp` | N/A (pattern reference for ST-002 capture design, if a seed packet path is confirmed) |
+
+| F-010 | `LevelData` flat RTTI (`9LevelData`) exists in 1.26.62 arm64 | CONFIRMED | ST-001 (`evidence/ST-001/zaphkiel_out.txt`, FINDCLASS LevelData, VA 0x796bd84890 this run); also `16LevelDataWrapper` + many `LevelData&`-taking methods (`WorldSettingsScreenController`, `LevelDataHelper::setDifficulty`, `createLevelStorageCallback`) | N/A (name presence; semantics/fields need ST-002/003) |
+| F-011 | `StartGamePacket` flat RTTI (`15StartGamePacket`) + client handler path exist in 1.26.62 arm64 | CONFIRMED | ST-001: `15StartGamePacket` (VA 0x796b64afb8), `PacketHandlerDispatcherInstance<StartGamePacket,false>`, `LegacyClientNetworkHandler::handle(NetworkIdentifier, StartGamePacket)` symbol | N/A (name presence; payload layout needs ST-002/003) |
+| F-012 | `LevelSettings` / `StartGamePacketPayload` have no flat RTTI; appear only in cereal schemas, `shared_ptr` wrappers, and function signatures | CONFIRMED (observation) → INFERRED plain non-polymorphic structs | ST-001: `cereal::{TypeSchema,CompositeSchema}<LevelSettings|StartGamePacket(Payload)>`, `shared_ptr_emplace<...>` wrappers, `RK13LevelSettings` params; no `13LevelSettings` / `22StartGamePacketPayload` flat entries | ST-002/003: usage analysis (`struct<>`, caller walk) instead of `vft<>` |
+| F-013 | `ScriptModuleMinecraft::ScriptWorld::getSeed() const` symbol reference exists (via Scripting reflection) | CONFIRMED (string) → INFERRED world-seed accessor, client-side value | ST-001 FINDCLASS Seed (`...ScriptWorld...getSeedEv...`) | ST-002/003: resolve address, decompile, identify backing store (spoofable client value vs true seed) |
+| F-014 | `LevelSeed64` type exists as a worldgen parameter (`BiomeSurfaceSystem::resolveBuilderImplementation`) | CONFIRMED (string) → HYPOTHESIS: internal 64-bit seed representation distinct from 32-bit wire seed | ST-001 FINDCLASS Seed | ST-002: `findclass<LevelSeed>` context; later: producers of `LevelSeed64` values |
+| F-015 | Settings-UI seed paths exist (`GameSettingsDetails::createSeed`/`createCopySeed`, `SeedHandler`) | CONFIRMED (strings) | ST-001 FINDCLASS Seed | Later: trace what store the copy-seed path reads |
+
+## Investigations
+
+- **ST-001** (COMPLETE 2026-11-14): seed-holder name recon. Evidence:
+  `evidence/ST-001/zaphkiel_out.txt`. Findings F-010..F-015. H-001/H-002
+  strengthened (names + handler + cereal paths present); still need
+  field/slot evidence.
+| F-016 | `LevelData` derives from `IEducationOptions` (single base shown) | CONFIRMED | ST-002 `hier<LevelData>` (`evidence/ST-002/zaphkiel_out.txt`) | N/A |
+| F-017 | `StartGamePacket` derives from `Packet` | CONFIRMED | ST-002 `hier<StartGamePacket>` | N/A (base-model shape matches BedrockTools `Packet`; offsets/slots still unverified for 1.26.62) |
+| F-018 | No standalone `getSeed`/`GetSeed` function symbols; only the two `ScriptWorld::getSeed` reflection references (same as ST-001) | CONFIRMED (run-scoped observation; absence is not proof — symbols may be absent from the searched set) | ST-002 `findclass<getSeed>` + `findclass<GetSeed>` | ST-003: ScriptWorld recon; if unresolvable, pivot to `LevelDataWrapper`/`createCopySeed` caller-walk |
+| F-019 | Zaphkiel `findclass<>` matching is case-insensitive | CONFIRMED (tool behavior) | ST-002: `GetSeed` query returned the `getSeed` matches | N/A (single-case queries suffice from now on) |
+| F-020 | `LevelSeed64` appears only as a parameter type (`BiomeSurfaceSystem::resolveBuilderImplementation` lambdas) + UGC seed-picker UI | CONFIRMED (strings) | ST-002 `findclass<LevelSeed>` | Later: producers of `LevelSeed64` values (worldgen input chain) |
+| F-021 | `StartGamePacketPayload` appears only in cereal `TypeSchema`/`CompositeSchema` | CONFIRMED (strings; reinforces F-012) | ST-002 `findclass<StartGamePacketPayload>` | ST-003: `fullvf<StartGamePacket>` to identify read/handle slots; payload layout via `read` decompile |
+
+## Investigations
+
+- **ST-002** (COMPLETE 2026-11-14): inheritance + accessor-name recon.
+  Evidence: `evidence/ST-002/zaphkiel_out.txt`. Findings F-016..F-021. Note:
+  VAs differ from ST-001 (ASLR re-slide) — addresses are never reused
+  across runs; only names carry over.
+| F-022 | `hier<ScriptWorld>` returned empty; no flat ScriptWorld RTTI among 418 `findclass<ScriptWorld>` matches | CONFIRMED (observation) → INFERRED non-polymorphic (no vtable); `getSeed` address still unknown | ST-003 (`evidence/ST-003/zaphkiel_out.txt` lines 2808-3235) | Scripting lead DEFERRED (lower priority than LevelData/dispatcher paths); address would need call-site analysis later |
+| F-023 | StartGamePacket vtable map (18 slots, file VAs): 0/1 dtors, 2 getId, 3 getName, 4 const `0xA00000`, 5 base helper, 6 write-impl (`+0x748==5` gate), 7 thunk→6, 8 cereal-serialize→7, 9 wrapper→16, 10 wrapper→17, 11 ret0, 12 ret1, 13/14 `+0x748` get/set, 15 string-returning cereal fn (UNKNOWN semantics), 16 read-impl (`+0x748==5` gate, cereal), 17 cereal-deserialize→16 | CONFIRMED (slot shapes + call graph) / INFERRED (read/write/handle role labels) | ST-003 `fullvf<StartGamePacket>` (lines 718-2806) | ST-004: dispatcher vtable identifies the network-path entry slot (= hook point); role labels verified when the dispatcher call is seen |
+| F-024 | LevelData vtable map (12 slots): 0/1 dtors (object extends past `+0x5a8`), 2/3 bool flag `+0x440` get/set, 4 thunk→2, 5/6 indexed lookup over vector at `+0xb8`, 7 thunk→5, 8/9 int32 `+0x3b0` get/set-once, 10/11 derived from 8 | CONFIRMED (slot shapes) | ST-003 `fullvf<LevelData>` (lines 18-716). Caveat: bytes after slot[1]'s tail call belong to an adjacent function (likely ctor) — linear-disasm fall-through, not part of slot[1] | ST-004: `struct<LevelData><0x3b0>` verifies the seed candidacy of slot 8 (only int-shaped accessor) |
+| F-025 | `StartGamePacket+0x748` (payload `+0x718`) int32 with trivial get/set, consumed with `==5` comparisons in slots 6/16 | CONFIRMED (shape + consumers) → behaves like a small-domain state field; seed candidacy DOWNGRADED to unlikely | ST-003 slots 6/13/14/16 | ST-004: `struct<StartGamePacket><0x748>` characterizes remaining users |
+| F-026 | StartGamePacket payload base is `+0x30` (slot[0] dtor: store base vtable, advance `x0+=0x30`, payload dtor) | CONFIRMED | ST-003 slot[0] (file VA `0xd75dd84`) | N/A (matches BedrockTools `Packet::Size = 0x30` model shape for this build) |
+| F-027 | StartGamePacket slot[2] returns `0x0B`; slot[3] returns `"StartGamePacket"` (len 15) | CONFIRMED | ST-003 slots 2/3 (file VAs `0xd73d004`/`0xd73d00c`); 0x0B matches public protocol docs | N/A (getId/getName identified; no hook needed) |
+
+## Investigations
+
+- **ST-003** (COMPLETE 2026-11-14): vtable enumeration + ScriptWorld recon.
+  Evidence: `evidence/ST-003/zaphkiel_out.txt`. Findings F-022..F-027.
+| F-028 | Dispatcher `PacketHandlerDispatcherInstance<StartGamePacket,false>` vtable = 3 real slots: 0 `ret`, 1 deleting-dtor (veneer→PLT `0x135d3df0`), 2 tail-call `br [x2_vtable+0x128]` (file VA `0xcc51828`) → INFERRED dispatch to handler-vtable slot 37 (`LegacyClientNetworkHandler::handle(NetworkIdentifier, StartGamePacket)`); only the `false` flavor exists (ST-001) → this IS the live MP path (INFERRED) | ST-004 `fullvf<...Lb0EE>` (`evidence/ST-004/zaphkiel_out.txt` lines 18-100376) | ST-005: `vft<LegacyClientNetworkHandler><37>` — payload reads confirm slot identity + seed offset |
+| F-029 | `fullvf<>` on a veneer/PLT slot explodes (~100K lines of linear PLT disasm, dispatcher slot[1]) | CONFIRMED (tool behavior) | ST-004 lines 31-100036 | Use targeted `vft<Cls><slot>` / slot ranges for small tables from now on |
+| F-030 | `struct<Cls><off>` scopes to class methods via BFS (45 LevelData / 101 StartGamePacket incl. ctors), NOT binary-wide; same access sites get multi-attributed to adjacent functions | CONFIRMED (tool behavior) | ST-004 STRUCT sections (lines 100377-100716) | External writers need other tools (`xref_tree<>`, `strfn<>`); discount duplicate attributions |
+| F-031 | `StartGamePacket+0x748` touched ONLY by slots 13/14 within all 101 class methods; the read impl (slot 16) never writes it | CONFIRMED → ELIMINATED as seed candidate (externally-set mode/state field, `==5`-gated) | ST-004 STRUCT SP + ST-003 slots 6/13/14/16 | Closed (negative result) |
+| F-032 | `LevelData+0x3b0` touched ONLY by slots 8/9 (get/set-once) within all 45 class methods; no ctor writes → write-external-only | CONFIRMED (in-class scope) → seed HYPOTHESIS stands, still needs external-writer evidence | ST-004 STRUCT LevelData | ST-005: `xref_tree<0x1114eeb0>` (setter file VA) — direct callers identify writers |
+
+## Investigations
+
+- **ST-004** (COMPLETE 2026-11-14): dispatcher entry + field-user scans.
+  Evidence: `evidence/ST-004/zaphkiel_out.txt`. Findings F-028..F-032.
+- **ST-005** (ISSUED 2026-11-14, awaiting user run): handler slot-37
+  decompile + name fallback + setter callers. `zInput.txt`:
+  `vft<LegacyClientNetworkHandler><37>`,
+  `findclass<LegacyClientNetworkHandler>`, `xref_tree<0x1114eeb0>`. Return
+  `zaphkiel_out.txt`. Slot-37 payload reads reveal the seed field offset;
+  setter callers identify `+0x3b0` writers (local-seed verdict input).
+  ST-006 follows with `struct<>` confirmation + `sig_targets.txt` signature
+  generation for the capture hooks.
+| F-033 | `LegacyClientNetworkHandler` slot 37 (vtable 301 slots, fn file VA `0xa2faa10`, ~2000-line body, 253 callees, 0 direct callers) = the StartGame `handle(NetworkIdentifier, StartGamePacket)` — INFERRED (high confidence): prologue binds this/x1/packet→x20; only-false-flavor dispatcher (F-028) feeds it; `findclass` shows the `handle(...StartGamePacket...)::$_1` lambda symbol (UUID/string/variant args); gamerule (`setRuleSelector`) + `MolangUpdateSystem` strings in body | ST-005 (`evidence/ST-005/zaphkiel_out.txt` lines 19-4318) | Slot identity CONFIRMED enough to pivot: seed hunt moves to its 4 packet-field consumers (ST-006) |
+| F-034 | Slot-37 packet-field map (packet-relative; payload = −0x30): `+0x10` base flag (ldrb, NOT seed); `+0x4b0` 24B string (SSO long/short paths, NOT seed); `+0x498` int32 by value but `==1`-compared → mode flag (NOT seed); `+0x4f8` 16B SIMD copy (UUID/vec-shaped, NOT seed); `+0x588` u16 + `+0x58a` byte → stack struct (unlikely seed); `+0x6e0` byte gate for `+0x5a8/+0x680/+0x6b8` (flags, NOT seed); `+0x4c8/+0x4e0/+0x50c` passed BY ADDRESS; payload base `+0x30` passed ×3. NO by-value int32 seed read → seed flows by-address/via callee | ST-005 disasm (lines 37-2038); x20=packet verified on all read paths by branch-target analysis (flag reuse confined to `0xa2fb448` exit convergence — see `evidence/ST-005/README.md`) | ST-006: `fn<>` the by-address consumers |
+| F-035 | Two slot-37 callees live in the LevelData-method file region (`0x1114xxxx`, same as slot-8/9 setter fn): `bl 0x1114ecac` with `x1=&pkt+0x4e0` (line ~1566) and `bl 0x1114fe58` with `x1=&pkt+0x4c8` (line ~634) — PRIME server→LevelData path candidates. Boundary puzzle: bl-target `0x1114ecac` vs `struct<>` setter-fn `0x1114ede8` vs xref-root `0x1114edec` (bl target = most likely true entry) | ST-005 disasm + ST-004 STRUCT LevelData | ST-006: `fn<0x1114ecac>` + `fn<0x1114fe58>` — if either writes LevelData fields from packet data, H-002 mechanism is found |
+| F-036 | LevelData slot-9 (`+0x3b0`) setter has 0 direct callers and exactly 1 virtual caller (`blr @ 0x68b350c` in fn `0x68b3158`, of 7665 scanned virtual-dispatch sites) → single-writer path | ST-005 `xref_tree<0x1114eeb0>` (lines 4320-4343) | ST-006: `fn<0x68b3158>` identifies the writer (world-load/level-init vs UI echo → local-seed verdict input) |
+
+## Investigations
+
+- **ST-005** (COMPLETE 2026-11-14): handler slot-37 decompile + name
+  fallback + setter callers. Evidence: `evidence/ST-005/zaphkiel_out.txt`.
+  Findings F-033..F-036.
+- **ST-006** (ISSUED 2026-11-14, awaiting user run): identify the 4
+  packet-field consumers + the setter's writer. `zInput.txt`:
+  `fn<0x1114ecac>`, `fn<0x1114fe58>`, `fn<0x68b3158>`, `fn<0x101c5f64>`.
+  Return `zaphkiel_out.txt`. If `0x1114ecac`/`0x1114fe58` write LevelData
+  fields from packet data → H-002 mechanism found (then ST-007:
+  `sig_targets.txt` signature generation for the capture hook). If
+  `0x68b3158` is world-load/level-init code → `+0x3b0` writer identified
+  (local-seed verdict input); if UI-only → candidacy weakens.
+| F-037 | `fn<0x1114ecac>` (slot-37's `&pkt+0x4e0` consumer) = 16-byte conditional-update-notify helper: 16B-compare `[x0+0x10]` vs `[x1]` (`0x13523e74`); on differ → `0x111230a0` update → `0x13523e2c` validate → tail `0x11140b40` commit. Proper prologue = TRUE entry → boundary puzzle resolved (setter-fn `0x1114ede8` is a separate fn `0x13C` later). pkt+0x4e0 = 16B blob (adjacent to +0x4f8's 16B copy) — NOT seed | ST-006 fn1 (lines 18-58) | Dead end for seed; no follow-up |
+| F-038 | `fn<>` reported "callers (4)" for fn1 but dumped only ONE caller context (continuous slot37 region, single `bl` at `0xa2fc22c`; slot37 calls it exactly once per ST-005 re-grep) → tool under-dumps caller contexts (caveat: counts ≠ dumped contexts); 3 call sites unidentified | ST-006 fn1 callers (lines 59-1295) vs ST-005 | Low priority (fn1 is not seed-path); note for future `fn<>` reads |
+| F-039 | `fn<0x1114fe58>` (slot-37's `&pkt+0x4c8` consumer) = factory: 5× `0x10b1xxxx` getters on the stack-obj + `new(0x5c0)` + ctor `0x11146b24(obj, floats, &pkt+0x4c8, ...)` + vtable'd wrapper pair via sret. NO `+0x3b0` write; `+0x4c8`'s fate is inside `0x11146b24` | ST-006 fn2 (lines 1296-1380) | ST-007 tertiary: `fn<0x11146b24>` |
+| F-040 | `fn<0x101c5f64>` (slot-37's `&pkt+0x50c` consumer) = 5-insn extractor: u16 `[x1]`→`[x0+0x14]`, byte `[x1+4]`→`[x0+0x38]` → pkt+0x50c = u16 field, pkt+0x510 = flag byte — ELIMINATED (not seed) | ST-006 fn4 (lines 6113-6124) | Closed |
+| F-041 | fn3's `blr @ 0x68b350c` calls LevelData vtable slot 8 with NO value argument (`x0=x21`=this set @ `0x68b349c`) = the GETTER: reads `+0x3b0`, forwards w0 as the value to `0xe804a08(x22=[x21+0x210], w1=w0, x2,x3=[x21+0x90])`. Caveat: LevelData identity of `*x21` rests on the tool's vtable match (INFERRED). fn3 disasm starts mid-function (callee-saved regs used without spill) → true entry above `0x68b3158`, unknown; fn3 character = giant zero-init (`x19` offsets `0x1c00`–`0x2358`+, atomics, float init) = level/world-init-shaped, NOT UI (INFERRED) | ST-006 fn3 (lines 3660-4084, blr region file lines ~3894-3900) | ST-007: `fn<0xe804a08>` — the value consumer identifies what `+0x3b0` IS |
+| F-042 | CORRECTION to F-036's framing: ST-005's `xref_tree<0x1114eeb0>` (LDR site = getter logic) returned the READER (`0x68b350c`→slot 8), exact and consistent — the SETTER (STR site `0x1114eec8`) caller is STILL UNKNOWN | ST-006 fn3 blr analysis (`ldr x8,[x8,#0x40]` = slot 8) | ST-007 primary: `xref_tree<0x1114eec8>` — the actual writer hunt |
+
+## Investigations
+
+- **ST-006** (COMPLETE 2026-11-14): consumer identification. Evidence:
+  `evidence/ST-006/zaphkiel_out.txt`. Findings F-037..F-042.
+- **ST-007** (ISSUED 2026-11-14, awaiting user run): writer hunt +
+  value-consumer ID + `+0x4c8`-fate ctor. `zInput.txt`:
+  `xref_tree<0x1114eec8>`, `fn<0xe804a08>`, `fn<0x11146b24>`. Return
+  `zaphkiel_out.txt`. Writer = world-load/init → `+0x3b0` init-written
+  (local-seed input); `0xe804a08` = worldgen/seed-consumer → `+0x3b0`
+  IS the seed (then ST-008: `sig_targets.txt` sig-gen for the capture
+  hook); `0xe804a08` = UI/metrics → candidacy weakens.
+| F-043 | `xref_tree<0x1114eec8>` (STR site) returned IDENTICAL output to ST-005's `xref_tree<0x1114eeb0>` (LDR site): same root `0x1114edec`, same callees, same single virtual caller (`blr @ 0x68b350c`) → LDR+STR sites = one fn span (set-once body); NO separately-identified slot-9 caller — slot-9 callers are unlisted-or-zero (F-038-pattern caveat extends to virtual-caller lists) | ST-007 xref_tree (lines 19-43) | Writer hunt via xref EXHAUSTED for this site; superseded by the ctor discovery (F-045: `+0x3b0` is ctor-written, slot-9 traffic not required) |
+| F-044 | `fn<0xe804a08>` = veneer → PLT `0x135efde0` (import or far-local; identity opaque via `fn<>`; ~2000-line PLT runaway = F-029 pattern, 0 callers) → the `+0x3b0`-reader's consumer is UNIDENTIFIABLE this way | ST-007 (lines 46-2053) | Deferred/superseded: field meaning now pursued via the ctor chain (F-045..F-047), not the veneer consumer |
+| F-045 | Ctor `0x11146b24` writes `[x19+0x3b0]` ← getter `0x10b1da08(x21-src)` (line ~2241) AND `[x19+0x440]` (byte) AND `[x19+0x5b8]`; constructed object = LevelData (INFERRED, very strong — behavioral triangulation: `0x5c0` alloc + `+0x3b0`/`+0x440` anchors + past-`0x5a8` content + vtable store `0x13e6eda0` + dense settings init; arithmetic vtable proof unavailable — no slide anchor). CORRECTION to F-032: `+0x3b0` IS ctor-written — `struct<>`'s BFS missed this ctor (concrete F-030 miss example) | ST-007 ctor (lines 2055-2977); ST-003 F-024 (slot 2/3 `+0x440` flag, `+0x5a8` extent) | ST-008: the getter + the payload→src extractor decide seed identity |
+| F-046 | Ctor `0x11146b24` is DUAL-USE: MP path (slot37→fn2: heap `new(0x5c0)`, `x2=&pkt+0x4c8`) AND local path (`0x9b372b0`: stack obj @ `sp+0x40`, `x2=x26+0x490`, then `0x11148a20` copy + `0x11148f6c` dtor). "callers (2)" vs ONE dumped (`0x9b372b0`; fn2 known-but-undumped) → F-038 pattern, 3rd instance | ST-007 ctor + caller ctx (lines 3128-3216); ST-006 fn2 | The `0x9b372b0` local path corroborates LevelData-from-local-structs (H-001 context); not blocking |
+| F-047 | MP seed-path chain reconstructed (INFERRED): StartGame payload → `0x9b56e60(sp+0x7d0, payload)` builds src-obj → fn2 `0x1114fe58(src, &pkt+0x4c8)` → ctor `0x11146b24(new LevelData, src, ...)` → `LevelData.+0x3b0 ← 0x10b1da08(src)`. Side: `&pkt+0x4c8` (x23) consumed as flag+blob (24B window → `0xe831aa8`), NOT the seed vehicle (downgraded); `+0x3b0 != 0` → flag `+0x45a = 1` (line ~2900) | ST-007 ctor + ST-006 fn2 + ST-005 slot37 (`bl 0x9b56e60` @ `0xa2fabd4`) | ST-008: `fn<0x9b56e60>` (payload→src) + `fn<0x10b1da08>` (src→value) — the last two hops |
+
+## Investigations
+
+- **ST-007** (COMPLETE 2026-11-14): writer hunt + consumer ID + ctor.
+  Evidence: `evidence/ST-007/zaphkiel_out.txt`. Findings F-043..F-047.
+- **ST-008** (ISSUED 2026-11-14, awaiting user run): the last two hops
+  of the MP chain. `zInput.txt`: `fn<0x9b56e60>`, `fn<0x10b1da08>`.
+  Return `zaphkiel_out.txt`. If `0x10b1da08` = trivial getter
+  (`ldr w0,[x0,#K]`) → `+0x3b0` = src+K; then `0x9b56e60` shows which
+  payload bytes feed src+K (payload-offset → wire-field mapping). Bytes
+  = the Seed varint position → `+0x3b0` IS the seed (CONFIRMED) → ST-009
+  `sig_targets.txt` sig-gen for the capture hook. If the chain lands on
+  a non-seed wire field → candidacy dead, pivot to payload-base
+  callees' other outputs / gated fields.
+| F-048 | Getter `0x10b1da08` = trivial `ldr w0,[x0,#0x78]; ret` → LevelData.+0x3b0 = src+0x78 (CONFIRMED insns). Dumped caller `0xd824364` (0xd76xxxx = StartGamePacket-TU region) boxes the value into a cereal-wrapper ctx (magics `0xfbfa4400`/`0xd4266eb1` + 2 `adr` refs) — secondary; "callers (2)" vs 1 dumped (ctor undumped) = F-038 5th instance | ST-008 (lines 3686-3753) | Closed (getter fully resolved) |
+| F-049 | Extractor `0x9b56e60(dst, payload)` = payload copy-ctor: bulk SIMD + same-offset scalars (u16s @0x30/0x38, int32 @0x58, 32B @0x60, 16B @0x80, 32B @0x90, u64 @0xb0) + deep string (@0x40, SSO long/short) + deep vector (@0xe0, overflow-checked `new` + `0x9b38f68` copy) + sub-copy `0x101e8594(+0xb8)`. src+0x78 ← payload+0x78 via the [0x60–0x7F] SIMD window with NO overwrite (zero `0x78` mentions in body) → **LevelData.+0x3b0 = StartGame packet+0xA8 (int32)** on the MP path (CONFIRMED data-flow; seed-ness F-051) | ST-008 (lines 19-294) | Closed (extractor fully resolved) |
+| F-050 | NO `0xa8` in ANY StartGamePacket slot (ST-003 re-grep 718-2806; only `[sp,#0xa8]` noise) → packet+0xA8 is written by EXTERNAL cereal fns via schema tables in DATA (slot16 = schema-driven engine: hash-walk + `0xd4fab3c`/`0x134886a8`/`0x134c5764`/`0x1347db84`/`0xab7e57c` cascade; offsets not immediates) → static wire-mapping infeasible via offset-grep | ST-003 slot16 (file VA `0xd73ddf4`, lines 2005-2640) + ST-008 chain | Wire-map deferred to RUNTIME validation (known-seed world); no further static hops planned |
+| F-051 | SEED-NESS VERDICT: `LevelData.+0x3b0` (= packet+0xA8) is the world seed — INFERRED-STRONG. Indicators: (1) int32 (matches 32-bit wire Seed); (2) settings-pipeline placement packet→LevelData; (3) ONLY int32 LevelData accessor pair; (4) set-once lifecycle (seed-like write-once-at-init); (5) SP+MP converge on the same ctor slot; (6) `+0x3b0 != 0` → flag `+0x45a`. Missing: wire-field map (→ runtime validation). SUFFICIENT for implementation-with-risk-flag: SPEC §4 already gates reporting by confidence (INFERRED until runtime-confirmed) | F-024/F-032/F-045/F-047..F-049 | Implementation plan presented; runtime validation (known-seed SP world) promotes to CONFIRMED |
+| F-052 | Capture plan needs NO static signatures: runtime RTTI-scan (`26LegacyClientNetworkHandler` → hook slot 37, read `x2+0xA8`; `9LevelData` → call slot 8 on LevelData from `Level::initialize` hook, BT pattern) — all addresses runtime-resolved. Sig-gen OPTIONAL backup only. F-038 4th instance ("callers (16)" vs 1 dumped `0x9b54ebc`, local-path copy site) | ST-001..ST-008 (chain); BT `Level::initialize` pattern (F-009) | No ST-009. Next: plan approval → implement → runtime validation |
+
+## Investigations
+
+- **ST-008** (COMPLETE 2026-11-14): the last two hops — chain closed.
+  Evidence: `evidence/ST-008/zaphkiel_out.txt`. Findings F-048..F-052.
+  RE PHASE COMPLETE (8/8 investigations, 52 findings). No ST-009:
+  remaining question (wire-field map) is answered cheaper at runtime
+  than via further static hops. Next: implementation plan (presented
+  below — awaiting user approval per standing rules), then build +
+  on-device runtime validation.
+| F-053 | BedrockTools `LevelInitialize_t` re-verified 2026-11-14 against a fresh shallow clone: `bool (*)(void*, const std::string*, void* levelSettings, void*, const std::string*, void*, void*)` (BT `src/modules/hud/debugmenu.cpp:92-99`); detour shape + module-owned install (`:101-143`) re-implemented (not copied) in `capture/SeedCapture.cpp` | CONFIRMED (reference source) | Used for the prepared LevelInit detour (inactive until ST-009) |
+| F-054 | BT resolves LevelInit by BYTE PATTERN (BT `src/core/memory/Signatures.cpp:23`, build 1.26.6X) → REJECTED for reuse (F-005 + no-copy rule) → SP/level-object path address pending new ST-009 (Level::initialize hunt for 1.26.62); initial impl ships the MP/packet path + prepared-disabled LevelInit site (empty `SignatureId::LevelInit` definition) | CONFIRMED (reference source + standing rule) | ST-009 proposal in the next user turn; object path activates with zero code change when the definition lands |
+| F-055 | Detour hardening design (shipped): (1) slot-37 detour assumes void return with the original call LAST (tail-position preserves any x0 result); residual risk flagged P0-watch for MP testing; (2) getId==0x0B self-gate before trusting +0xA8 (F-027), rejects counted; (3) levelSettings validated against a dual-slot-verified LevelData vtable base (`dl_iterate_phdr` scan) before any slot-8 call, mismatches counted; (4) detours allocate/lock/log nothing; cross-thread readings via packed seq+seed atomics | Design record (implementation) | docs/IMPLEMENTATION_PLAN.md holds the full plan + validation protocol + residual risks |
+| F-056 | Host syntax gate: all 11 TUs pass `g++ -fsyntax-only -std=c++20 -fno-rtti` against stub headers (`/tmp`, never committed; `pl/*` verbatim where STL-only, Logger/Mod/nlohmann/EGL surfaces mirrored from verified declarations). Caught and fixed a REAL skeleton bug: `GameHooks.cpp`/`Runtime.cpp` used `FrameEvent` without including `FrameEvent.hpp` (would have failed CI). NOT a substitute for the NDK build (no codegen, host libc not bionic); first CI build remains the compile gate | Implementation (this turn) | CI build → on-device validation |
+| F-057 | First CI builds failed twice, both fixed: (1) `pl/Logger.hpp` needs `fmt/format.h` — required adding `fmt` to BOTH `add_requires` and target `add_packages` (first attempt added only `add_requires`, so fmt downloaded but its headers never reached the compiler); (2) `SeedModule::onMenuConfigChanged` was declared but never defined (would have failed at link) — full-int64 `strtoll` menu path now implemented. Pre-push audit vs real preloader headers verified all other `pl::` call sites; CI green on the next run (F-008) | CI runs 2026-11-14 (PR #1) | None (build gate clear); process note: never parallel-edit the same file, and verify multi-part fixes landed before pushing |
+
+## Implementation
+
+- **INIT-001** (UNDERWAY 2026-11-14, approved with INFERRED risk flag):
+  `sdk/offsets/Seed.hpp` (provenance-commented constants),
+  `capture/VtableScan.*` (vtable-base verify), `capture/SeedCapture.*`
+  (slot-37 + LevelInit detours, atomic readings), SeedModule rewire
+  (drain/validate/render, default-on, `validationArmed` /
+  `validateExpectedSeed` config + menu), signature table (StartGameHandle
+  live, LevelInit empty), docs (IMPLEMENTATION_PLAN.md, ARCHITECTURE.md).
+  Host syntax gate 11/11 (F-056); CI build still the compile gate. Next:
+  CI build → fix errors → on-device validation protocol
+  (IMPLEMENTATION_PLAN.md) → ST-009 (LevelInit address) → SP path live.
