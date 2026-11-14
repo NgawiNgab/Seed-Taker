@@ -1,0 +1,98 @@
+# Seed-Taker Initial Implementation Plan
+
+Approved by the user 2026-11-14 with an explicit risk flag: the captured
+int32's seed-ness is INFERRED-strong (F-051), not confirmed. Mitigations are
+designed in, not bolted on: SPEC §4 confidence-gating (INFERRED until
+runtime-validated), per-path graceful degradation (unresolved →
+`unavailable`, never crash), and detour self-validation (getId gate,
+vtable-base check).
+
+## What the RE phase delivered (ST-001..ST-008, F-001..F-052)
+
+- MP chain, traced instruction-by-instruction:
+  `LegacyClientNetworkHandler` slot 37 ← dispatcher (F-028/F-033),
+  packet+0xA8 → extractor → src+0x78 (F-049) → getter (F-048) →
+  ctor → LevelData.+0x3b0 (F-045/F-047).
+- Slot-8 getter = the only int32 LevelData accessor (F-024); slot-2 getId
+  returns 0x0B (F-027); both flat RTTI names present in 1.26.62
+  (`9LevelData`, `26LegacyClientNetworkHandler`).
+- Consequence (F-052): capture needs NO static signatures and NO copied
+  patterns — all addresses resolve at runtime via RTTI+vtable.
+
+## Design (shipped in this branch)
+
+```
+slot-37 detour (network thread)          Level::initialize detour (DISABLED, ST-009)
+  getId == 0x0B?                           levelSettings vtable == LevelData base?
+    yes -> packet+0xA8 -(atomic)->            yes -> slot-8 call -(atomic)->
+    no  -> rejectedPackets++                  no  -> typeMismatches++
+                                              |
+SeedModule::onFrame (GL thread): drain by sequence -> validate (one-shot per
+source while armed) -> primary = newest usable -> render (SPEC §4) + DIVERGE
+line when packet != object + validation line while armed.
+```
+
+- `include/seedtaker/sdk/offsets/Seed.hpp`: constants with per-value
+  provenance comments. Nothing without a finding ID.
+- `src/modules/seed/capture/VtableScan.*`: `dl_iterate_phdr` scan of the
+  libminecraftpe mapping for two adjacent resolved slots (8+9) → verified
+  vtable base; `isLevelDataInstance()` gate. Resolves at most once.
+- `src/modules/seed/capture/SeedCapture.*`: hook install/uninstall
+  (idempotent, mutex-guarded, module-owned per the BedrockTools pattern),
+  both detours, packed-atomic readings, diagnostic counters, status string.
+  Detours allocate/lock/log nothing.
+- `SeedModule`: default-on passive observer; drains, validates (config keys
+  `validationArmed`, `validateExpectedSeed`), renders. Per-source verified/
+  failed flags; mismatch excludes that source (sticky until re-armed).
+- Consolidation note: the approved plan named `RttiScanner`/`VtableHook`
+  files, but `memory::resolve` (RTTI+vtable) and `hooks::install` already
+  provide those roles — no duplicate wrappers were written.
+
+## Deliberately NOT in this iteration
+
+- LevelInit address (BT's is a byte pattern for another build — rejected,
+  F-054). The detour + install site + vtable gate are written; the
+  `SignatureId::LevelInit` definition is empty so the path stays disabled
+  and reported. ST-009 (proposed) finds the 1.26.62 address.
+- Sig-hooks as backup (optional; F-052). RTTI+vtable is primary.
+- Heap-scan LevelData discovery (fallback option if LevelInit disappoints).
+- Wire-field map of packet+0xA8 (infeasible statically, F-050) — answered
+  at runtime instead (see validation).
+
+## Build
+
+`src/modules/**.cpp` globs pick up the new files; no xmake change needed.
+Verification so far (F-056): all 11 TUs pass a host `g++ -fsyntax-only`
+gate against mirrored stub headers, which caught one real skeleton bug
+(missing `FrameEvent.hpp` includes, fixed). This is NOT a compile proof:
+no NDK here, so the first CI build (`build.yml`, NDK r28c) remains the
+compile gate, and any errors there are fixed before on-device testing.
+Never claim a green build without seeing it.
+
+## Runtime validation protocol (on-device, user-operated)
+
+1. SP known-seed: new world, seed e.g. `12345`. Packet path will NOT fire
+   (no StartGame packet locally) — object path pending ST-009, so expect
+   `unavailable` in this iteration; record the status line.
+2. MP: join any server. Expect `~N (INFERRED - server-packet...)`.
+   `rejectedPackets` should stay 0 (slot-37 exclusivity check).
+3. Validation: in the menu (or config.json), set `validateExpectedSeed`
+   (free-form text, full int64 range incl. negatives) and flip the
+   `validationArmed` toggle, then load a world whose true seed is known
+   independently. The first reading per source is compared one-shot: match
+   → Recovered (promotes F-051 toward CONFIRMED); mismatch → that source
+   is excluded with a log warning + HUD note (re-arm to retry).
+4. Spoof probe (later): server forcing seed 0 → packet reads 0 while any
+   independent channel disagrees → DIVERGE line exercises SPEC §3.
+
+## Residual risks
+
+- Slot-37 void-return assumption (F-055): mitigated by tail-call shape;
+  a wrong assumption corrupts one register on one path — watch for
+  network instability in MP testing and report it as P0.
+- `levelSettings` may not be LevelData (type unverified): mitigated by
+  the vtable check (safe skip + counter), but the SP path may need a
+  different acquisition if the check persistently fails (ST-009 input).
+- `resolveVtableFunction` behavior on this build is trusted from the
+  preloader API contract; if StartGameHandle fails to resolve on-device,
+  the status line reports `capture: unresolved` (check log Rtti names).

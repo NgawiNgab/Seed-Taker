@@ -1,0 +1,70 @@
+=== Zaphkiel RE Framework ===
+config: /storage/emulated/0/Android/media/org.levimc.launcher/kurumi/zaphkiel_config.txt
+lib: /data/data/org.levimc.launcher/files/minecraft_libs/com.mojang.minecraftpe/arm64/libminecraftpe.so
+loaded 342231392 bytes
+segments: 7
+  fo=0x0  va=0x0  sz=0x13686ff0
+  fo=0x13686ff0  va=0x1368aff0  sz=0x97c010
+  fo=0x14002668  va=0x1400a668  sz=0x2fee38
+  fo=0x14304000  va=0x14310000  sz=0x10
+  fo=0x14308000  va=0x14318000  sz=0x1000
+  fo=0x1430c000  va=0x14320000  sz=0x352e80
+  fo=0x14660000  va=0x14678000  sz=0x260
+lib text bounds: 2 executable range(s)
+    0x0 - 0x13686ff0
+    0x14318000 - 0x14319000
+targets: 6
+
+============================================================
+HIERARCHY: LevelData
+============================================================
+  class hierarchy for "LevelData":
+LevelData
+  └─ IEducationOptions
+
+============================================================
+HIERARCHY: StartGamePacket
+============================================================
+  class hierarchy for "StartGamePacket":
+StartGamePacket
+  └─ Packet
+
+============================================================
+FINDCLASS: getSeed
+============================================================
+  [findclass] 2 match(es) for "getSeed":
+    0x7963f08dd8  raw="NSt6__ndk120__shared_ptr_emplaceIN9Scripting10Reflection20MemberPropertyGetterIN21ScriptModuleMinecraft11ScriptWorldELNS2_12ReturnPolicyE1EXadL_ZNKS5_7getSeedEvEEEENS_9allocatorIS7_EEEE"  demangled="NSt6__ndk120__shared_ptr_emplaceIN9Scripting10Reflection20MemberPropertyGetterIN21ScriptModuleMinecraft11ScriptWorldELNS2_12ReturnPolicyE1EXadL_ZNKS5_7getSeedEvEEEENS_9allocatorIS7_EEEE"
+    0x7963f08eb0  raw="N9Scripting10Reflection20MemberPropertyGetterIN21ScriptModuleMinecraft11ScriptWorldELNS0_12ReturnPolicyE1EXadL_ZNKS3_7getSeedEvEEEE"  demangled="Scripting::Reflection::MemberPropertyGetter"
+
+  paste the raw form into fullvf<...> or vft<...> exactly as shown above
+
+============================================================
+FINDCLASS: GetSeed
+============================================================
+  [findclass] 2 match(es) for "GetSeed":
+    0x7963f08dd8  raw="NSt6__ndk120__shared_ptr_emplaceIN9Scripting10Reflection20MemberPropertyGetterIN21ScriptModuleMinecraft11ScriptWorldELNS2_12ReturnPolicyE1EXadL_ZNKS5_7getSeedEvEEEENS_9allocatorIS7_EEEE"  demangled="NSt6__ndk120__shared_ptr_emplaceIN9Scripting10Reflection20MemberPropertyGetterIN21ScriptModuleMinecraft11ScriptWorldELNS2_12ReturnPolicyE1EXadL_ZNKS5_7getSeedEvEEEENS_9allocatorIS7_EEEE"
+    0x7963f08eb0  raw="N9Scripting10Reflection20MemberPropertyGetterIN21ScriptModuleMinecraft11ScriptWorldELNS0_12ReturnPolicyE1EXadL_ZNKS3_7getSeedEvEEEE"  demangled="Scripting::Reflection::MemberPropertyGetter"
+
+  paste the raw form into fullvf<...> or vft<...> exactly as shown above
+
+============================================================
+FINDCLASS: LevelSeed
+============================================================
+  [findclass] 6 match(es) for "LevelSeed":
+    0x7963934d28  raw="NSt6__ndk110__function6__funcIZN29WorldSettingsScreenController19_chooseUGCLevelSeedEvE3$_0NS_9allocatorIS3_EEFvRKNS_12basic_stringIcNS_11char_traitsIcEENS4_IcEEEESC_RKN4Core4PathEEEE"  demangled="NSt6__ndk110__function6__funcIZN29WorldSettingsScreenController19_chooseUGCLevelSeedEvE3$_0NS_9allocatorIS3_EEFvRKNS_12basic_stringIcNS_11char_traitsIcEENS4_IcEEEESC_RKN4Core4PathEEEE"
+    0x7963934d58  raw="ZN29WorldSettingsScreenController19_chooseUGCLevelSeedEvE3$_0"  demangled="ZN29WorldSettingsScreenController19_chooseUGCLevelSeedEvE3$_0"
+    0x79643e56e8  raw="NSt6__ndk110__function6__funcIZZZN18BiomeSurfaceSystem28resolveBuilderImplementationER13BiomeRegistryRK22SurfaceBuilderRegistry11LevelSeed64ENK3$_0clER5BiomeENKUlR18SurfaceBuilderDataE_clESD_EUlR15ISurfaceBuilderE_NS_9allocatorISH_EEFbSG_EEE"  demangled="NSt6__ndk110__function6__funcIZZZN18BiomeSurfaceSystem28resolveBuilderImplementationER13BiomeRegistryRK22SurfaceBuilderRegistry11LevelSeed64ENK3$_0clER5BiomeENKUlR18SurfaceBuilderDataE_clESD_EUlR15ISurfaceBuilderE_NS_9allocatorISH_EEFbSG_EEE"
+    0x79643e5718  raw="ZZZN18BiomeSurfaceSystem28resolveBuilderImplementationER13BiomeRegistryRK22SurfaceBuilderRegistry11LevelSeed64ENK3$_0clER5BiomeENKUlR18SurfaceBuilderDataE_clESA_EUlR15ISurfaceBuilderE_"  demangled="ZZZN18BiomeSurfaceSystem28resolveBuilderImplementationER13BiomeRegistryRK22SurfaceBuilderRegistry11LevelSeed64ENK3$_0clER5BiomeENKUlR18SurfaceBuilderDataE_clESA_EUlR15ISurfaceBuilderE_"
+    0x79643e82c8  raw="NSt6__ndk110__function6__funcIZN18BiomeSurfaceSystem28resolveBuilderImplementationER13BiomeRegistryRK22SurfaceBuilderRegistry11LevelSeed64E3$_1NS_9allocatorIS9_EEFbR15ISurfaceBuilderEEE"  demangled="NSt6__ndk110__function6__funcIZN18BiomeSurfaceSystem28resolveBuilderImplementationER13BiomeRegistryRK22SurfaceBuilderRegistry11LevelSeed64E3$_1NS_9allocatorIS9_EEFbR15ISurfaceBuilderEEE"
+    0x79643e82f8  raw="ZN18BiomeSurfaceSystem28resolveBuilderImplementationER13BiomeRegistryRK22SurfaceBuilderRegistry11LevelSeed64E3$_1"  demangled="ZN18BiomeSurfaceSystem28resolveBuilderImplementationER13BiomeRegistryRK22SurfaceBuilderRegistry11LevelSeed64E3$_1"
+
+  paste the raw form into fullvf<...> or vft<...> exactly as shown above
+
+============================================================
+FINDCLASS: StartGamePacketPayload
+============================================================
+  [findclass] 2 match(es) for "StartGamePacketPayload":
+    0x7963dc7838  raw="N6cereal8internal10TypeSchemaI22StartGamePacketPayloadEE"  demangled="cereal::internal::TypeSchema"
+    0x7963dc7f58  raw="N6cereal8internal15CompositeSchemaI22StartGamePacketPayloadEE"  demangled="cereal::internal::CompositeSchema"
+
+  paste the raw form into fullvf<...> or vft<...> exactly as shown above

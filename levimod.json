@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "seedtaker",
+  "version": "0.1.0",
+  "minecraft_versions": [
+    "1.26.62"
+  ],
+  "info": {
+    "name": "SeedTaker",
+    "author": "NgawiNgab",
+    "description": "Standalone native Levi mod that captures and displays the Minecraft Bedrock world seed.",
+    "homepage_url": "https://github.com/NgawiNgab/Seed-Taker",
+    "tags": [
+      "Utility"
+    ]
+  },
+  "release_assets": {
+    "include": [
+      "*.levipack",
+      "*.so"
+    ],
+    "labels": {
+      "SeedTaker.levipack": "LeviPack",
+      "libSeedTaker.so": "Native library"
+    }
+  }
+}
