@@ -22,10 +22,10 @@ vtable-base check).
 ## Design (shipped in this branch)
 
 ```
-slot-37 detour (network thread)          src-getter detour (F-072; games threads below)
-  getId == 0x0B?                           call original -> snapshot 7 int64
-    yes -> packet+0xA8 -(atomic)->           windows over src+0x60..0x78
-    no  -> rejectedPackets++                 -(per-window atomics)->
+slot-37 detour (network thread)          ctor ASM wrapper (F-074; any game thread)
+  getId == 0x0B?                           save regs -> snapshot 7 int64 windows
+    yes -> packet+0xA8 -(atomic)->           over src(x1)+0x60..0x78 -> restore ->
+    no  -> rejectedPackets++                 tail-call original (residue kept)
 (Level::initialize detour: RETIRED vehicle, F-067; kept as backup)
 SeedModule::onFrame (GL thread): retry installs (idempotent) -> drain by
 sequence -> validate (one-shot per source/window while armed) -> primary =
@@ -42,9 +42,11 @@ when packet != object + per-window debug lines + validation line (armed).
   (idempotent, mutex-guarded, module-owned per the BedrockTools pattern),
   both detours, packed-atomic readings, diagnostic counters, status string.
   Detours allocate/lock/log nothing.
-- `src/modules/seed/capture/SrcScan.*` (F-071/F-072): src-getter hook
-  (file VA + slide, body-verified pre-hook); post-call 7-window int64
-  snapshot via per-window value+seq atomics; lock-free, status string.
+- `src/modules/seed/capture/SrcScan.*` (F-071/F-072/F-074): LevelData-ctor
+  hook via a preserve-all ASM wrapper (file VA + slide, dual `bl`-word
+  anchors verified pre-hook); entry-time 7-window int64 snapshot of
+  src(x1) via per-window value+seq atomics; lock-free, status string.
+  (The 8-byte src-getter hook crashed the game — F-073; never again.)
 - `libraryBase()` (`VtableScan.*`): dlpi_addr of a loaded library for
   file-VA rebasing (ST-005 slide, computed at runtime).
 - `SeedModule`: default-on passive observer; drains, validates (config keys

@@ -4,12 +4,16 @@
 //
 // Why this exists: the world seed is 64-bit (F-058) but no fully-mirrored
 // 64-bit window exists in LevelData (F-071) — so the seed must be read
-// from the src settings object directly. The hook sits on the src getter
-// 0x10b1da08 (file VA + slide, body-verified): known 1-arg signature, so
-// the detour is plain C++ with zero register-shape risk (the ctor-ASM
-// trampoline was considered and discarded, F-072). Every call proves
-// src+0x78 mapped, so the post-call snapshot of 7 int64 windows over
-// src+0x60..0x78 is always safe (16B-chunk argument, F-071).
+// from the src settings object directly. The hook sits on the LevelData
+// ctor (file VA + slide, dual `bl`-word anchors verified): a preserve-all
+// ASM wrapper snapshots 7 int64 windows over src(x1)+0x60..0x78 at entry,
+// then tail-calls the original with bit-identical behavior (F-074).
+// (First attempt hooked the 8-byte src getter and crashed the game —
+// patch overrun into the neighbor function. F-073. Never again.)
+//
+// Mapping safety: src is the live input object (the ctor reads src+0x78
+// itself); every window additionally sits in a 16B chunk anchored by a
+// known game read (F-071).
 //
 // Threading: per-window value+sequence atomics (lock-free). The detour
 // allocates/locks/logs nothing. SeedModule drains by sequence and
