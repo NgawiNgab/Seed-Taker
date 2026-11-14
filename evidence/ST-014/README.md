@@ -1,55 +1,61 @@
-# ST-014 — where the decrypted server seed lands (ISSUED 2026-11-14)
+# ST-014 — the decode seam (COMPLETE 2026-11-14)
 
-## The question
+Filed verbatim: `zaphkiel_out-14.txt` (3682 lines; the upload arrived as
+`zaphkiel_out-13.txt` — same naming confusion as ST-013, the content is
+this batch). Single target, and it answered everything it was asked.
 
-> Where exactly does 1.26.62 store `StartGamePacket.seed` after decryption
-> and decoding?
+## 1. The seam
 
-## Answer from evidence (F-090), before any new run
+The copy-ctor's caller list contains **`0xa2fabd4`**, which is inside the
+StartGame packet handler `0xa2faa10` (F-033) at **+0x1C4**.
 
-It is stored at **src+0x0** — the same slot as every other world, and the
-same slot the LevelData ctor already reads through `ab28`
-(`ldr x0,[x0]; ret`, F-087).
+The handler binds the packet at `x20` — `0xa2fabac add x2, x20, #0x4b0`.
+Then:
 
-The chain, each link sourced:
+```
+0xa2fabcc  add  x0, sp, #0x7d0      ; destination: handler stack
+0xa2fabd0  add  x1, x20, #0x30      ; source: packet + 0x30 = LevelSettings
+0xa2fabd4  bl   0x9b56e60           ; payload copy-ctor
+```
 
-1. **Wire**: `seed` is `int64` little-endian inside LevelSettings.
-   Codec v291 read it as 32-bit; **v527 switched to `readLongLE()`** and
-   v671→v898 inherit that unchanged. So the field is 64-bit on the wire.
-2. **Decode**: after decryption the packet is parsed into a
-   `StartGamePacket` whose `seed` member is `long` (64-bit).
-3. **Hand-off**: the decoded payload is copied out by the payload copy-ctor
-   `0x9b56e60`, which opens with an overlapping
-   `ldur q0,[x1,#0xc]; ldr q1,[x1],#0x20; stur q0,[x0,#0xc]; str q1,[x0],#0x20`
-   — a 16B+16B block copy of `src[0x00..0x20]` into `[0x00..0x20]`, which
-   **covers 0x0C..0x1C**: seed, spawnBiomeType, customBiomeName,
-   dimensionId, generatorId.
-4. **Access**: `ab28(src)` returns `src+0x0` as a u64 — and local worlds
-   prove it holds the real seed (F-089 recovered the exact value).
+So the decoded StartGamePacket is copied into handler stack at
+`sp+0x7d0` on **every** StartGame — server included. That is the moment
+the server seed exists in client memory in decoded form.
 
-## Why our hooks missed it anyway
+The copy-ctor body confirms the field layout:
 
-The **location** was never wrong; the **timing and the vantage point** were:
+```
+0x9b56e98  ldur q0, [x1, #0xc]
+0x9b56e9c  ldr  q1, [x1], #0x20
+0x9b56ea0  stur q0, [x0, #0xc]
+0x9b56ea4  str  q1, [x0], #0x20
+```
 
-- The LevelData ctor-entry snapshot fires too early on a server (`-1`).
-- The wire is **encrypted**, and decryption happens inside the client's
-  network stack — so a hook at packet-header level cannot see the seed.
-  A proxy (Lumina) can, because it already holds plaintext.
+The overlapping q0/q1 stores also fill dst+0x00..0x0C from src+0x0C..0x1C,
+which is `[u64 seed, u16 spawnBiomeType]`. **The seed is LevelSettings
++0x0C**, matching the codec where `seed` is the first LevelSettings field.
 
-## Trap ruled out
+## 2. Why the setter never saw the server seed
 
-Lumina applies **no seed masking or filtering** — a repo-wide grep for
-`seed` in its app code yields only extraction, the `!seed` command, two
-UI overlays, and a LevelDB `putLong("RandomSeed", seed)`. On the servers
-it supports, the extracted value is genuine. So "server withholds the
-seed" is not supported by that implementation.
+`0x111463bc` (the seed setter) does **not** appear anywhere in the
+StartGame handler body, and neither does the LevelData ctor `0x11146b24`.
+The handler instead reads the stack LevelSettings through the
+`0x10b1dxxx` family — one int/byte getter per field.
 
-## What ST-014 dumps
+So the setter is the **world-settings** path (what F-091 showed to be an
+RNG/default-seed randomizer), and the **packet path never touches it**.
+`fires=164 last=-1` is fully explained and is not a bug: the setter is
+simply not the server seed's carrier.
 
-T1 is the answer: the payload copy-ctor's body and callers, to confirm
-that a **server** packet reaches it, and to place a hook on the
-**source** side (`x1`) rather than the destination (`x0`).
+## 3. Hook safety
 
-If T1 shows the copy-ctor is reached on MP decode, the fix is a hook at
-`0x9b56e60` + snapshot of `x1+0x0` — 29 bytes of straight-line prologue,
-`0xb56e60` unique, no anchor pair needed.
+`0x9b56e60` is a 0x144-frame function with a 23-instruction prologue
+before its first `bl` at `0x9b56ea8`. It comfortably satisfies the F-073
+rule (never hook anything under 16 bytes / no 8-byte getters).
+
+## 4. What remains
+
+Only the timing/ownership of `sp+0x7d0` after the handler returns — i.e.
+where the decoded settings object is *handed off*. The seed's location on
+the packet side is settled: `packet+0x30+0x0C` at the copy, `sp+0x7d0+0x0C`
+after it.
