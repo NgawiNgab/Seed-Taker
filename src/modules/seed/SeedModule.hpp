@@ -1,12 +1,12 @@
 #pragma once
 
-// SeedTaker's feature module. Capture status: the PACKET path is live
-// (slot-37 hook -> StartGamePacket+0xA8, INFERRED until runtime-validated)
-// and the SRC-SCAN path is live (getter-hook -> 7 int64 windows over the
-// src settings cluster, F-071/F-072); the OBJECT path (LevelData.+0x3b0
-// via Level::initialize) stays prepared-but-disabled as backup (vehicle
-// retired, F-067). See capture/SeedCapture.hpp, capture/SrcScan.hpp,
-// docs/IMPLEMENTATION_PLAN.md, and docs/EVIDENCE_LOG.md (F-048..F-072).
+// SeedTaker's feature module. Capture status: the SETTER path is primary
+// (seed-setter detour -> authoritative u64 seed, F-088) and the SRC-SCAN
+// path is live (ctor hook -> 8 int64 windows over src, F-071/F-072/F-087);
+// the PACKET path (StartGamePacket+0xA8, legacy int32) and OBJECT path
+// (LevelData.+0x3b0) are retained as legacy cross-checks only. See
+// capture/SeedCapture.hpp, capture/SrcScan.hpp, docs/IMPLEMENTATION_PLAN.md,
+// and docs/EVIDENCE_LOG.md (F-048..F-088).
 //
 // SPEC §4 is enforced in onFrame: no number is rendered while unavailable,
 // and inferred values always carry an explicit INFERRED marking. Packet and
@@ -72,6 +72,16 @@ private:
     SeedReading m_reading;
     SourceState m_packet;
     SourceState m_object;
+    // Setter source (F-088): the authoritative u64 seed captured from the
+    // LevelData seed-setter detour. Revalidated on every new registration
+    // (last call wins), unlike the one-shot src windows.
+    struct SetterState {
+        std::uint64_t sequence = 0;
+        std::int64_t value = 0;
+        bool verified = false;
+        bool failed = false;
+    };
+    SetterState m_setter;
     // Src-scan windows (F-071/F-072): one state per int64 snapshot window.
     // Each window one-shots independently against the expected seed; a
     // full-int64 match is runtime validation (Recovered).

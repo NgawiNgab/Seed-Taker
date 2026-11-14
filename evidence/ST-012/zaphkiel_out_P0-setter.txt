@@ -1,0 +1,433 @@
+=== Zaphkiel RE Framework ===
+config: /storage/emulated/0/Android/media/org.levimc.launcher/kurumi/zaphkiel_config.txt
+lib: /data/data/org.levimc.launcher/files/minecraft_libs/com.mojang.minecraftpe/arm64/libminecraftpe.so
+loaded 342231392 bytes
+segments: 7
+  fo=0x0  va=0x0  sz=0x13686ff0
+  fo=0x13686ff0  va=0x1368aff0  sz=0x97c010
+  fo=0x14002668  va=0x1400a668  sz=0x2fee38
+  fo=0x14304000  va=0x14310000  sz=0x10
+  fo=0x14308000  va=0x14318000  sz=0x1000
+  fo=0x1430c000  va=0x14320000  sz=0x352e80
+  fo=0x14660000  va=0x14678000  sz=0x260
+lib text bounds: 2 executable range(s)
+    0x0 - 0x13686ff0
+    0x14318000 - 0x14319000
+targets: 1
+
+============================================================
+DIRECT [FN]: fn<0x111463bc>
+============================================================
+[FN] fn=0x111463bc
+  params: x0=this  x1=arg1
+--- disasm ---
+0x111463bc  sub  sp, sp, #0x80  ×128×
+0x111463c0  stp  x29, x30, [sp, #0x40]
+0x111463c4  str  x23, [sp, #0x50]
+0x111463c8  stp  x22, x21, [sp, #0x60]
+0x111463cc  stp  x20, x19, [sp, #0x70]
+0x111463d0  add  x29, sp, #0x40  ×64×
+0x111463d4  mrs  x22, tpidr_el0
+0x111463d8  mov  x20, x1
+0x111463dc  mov  x19, x0
+0x111463e0  ldr  x8, [x22, #0x28]
+0x111463e4  stur  x8, [x29, #0xfffffffffffffff8]
+0x111463e8  mov  w8, #0x7  ×7×
+0x111463ec  str  x1, [sp, #0x18]
+0x111463f0  adrp  x1, 0x14225000
+0x111463f4  add  x1, x1, #0x8b0  ×2224×
+0x111463f8  str  w8, [sp, #0x30]
+0x111463fc  str  x1, [sp, #0x10]
+0x11146400  adrp  x2, 0x2a13000
+0x11146404  add  x2, x2, #0xf00  ×3840×
+0x11146408  add  x0, x0, #0x4f8  ×1272×
+0x1114640c  add  x3, sp, #0x10  ×16×
+0x11146410  add  x4, sp, #0xf  ×15×
+0x11146414  bl  0xd05546c  ; CALL 0xd05546c
+0x11146418  ldr  w8, [x0, #0x50]
+0x1114641c  mov  x21, x0
+0x11146420  adrp  x23, 0x13e6f000
+0x11146424  add  x23, x23, #0x620  ×1568×
+0x11146428  cmp  w8, #0x7  ×7×
+0x1114642c  b.eq  0x11146448
+0x11146430  cmn  w8, #0x1
+0x11146434  b.ne  0x11146450
+0x11146438  mov  w8, #0x7  ×7×
+0x1114643c  str  x20, [x21, #0x38]
+0x11146440  str  w8, [x21, #0x50]
+0x11146444  b  0x1114647c  ; TAIL 0x1114647c
+0x11146448  stur  x20, [x21, #0x38]
+0x1114644c  b  0x1114647c  ; TAIL 0x1114647c
+0x11146450  ldr  x8, [x23, w8, uxtw #0x3]
+0x11146454  add  x0, sp, #0x10  ×16×
+0x11146458  add  x1, x21, #0x38  ×56×
+0x1114645c  blr  x8  ; INDIRECT
+0x11146460  ldr  x9, [sp, #0x18]
+0x11146464  ldr  w8, [sp, #0x30]
+0x11146468  str  x9, [x21, #0x38]
+0x1114646c  mov  w9, #0x7  ×7×
+0x11146470  cmn  w8, #0x1
+0x11146474  str  w9, [x21, #0x50]
+0x11146478  b.eq  0x1114648c
+0x1114647c  ldr  x8, [x23, w8, uxtw #0x3]
+0x11146480  add  x0, sp, #0x10  ×16×
+0x11146484  add  x1, sp, #0x18  ×24×
+0x11146488  blr  x8  ; INDIRECT
+0x1114648c  mov  x0, x19
+0x11146490  mov  w1, #0x9  ×9×
+0x11146494  bl  0x1114e3e0  ; CALL 0x1114e3e0
+0x11146498  tst  x1, #0xff  ×255×
+0x1114649c  b.eq  0x111464a4
+0x111464a0  bl  0xe831d98  ; CALL 0xe831d98
+0x111464a4  ldr  x8, [x22, #0x28]
+0x111464a8  ldur  x9, [x29, #0xfffffffffffffff8]
+0x111464ac  cmp  x8, x9
+0x111464b0  b.ne  0x111464f8
+0x111464b4  ldp  x20, x19, [sp, #0x70]
+0x111464b8  ldr  x23, [sp, #0x50]
+0x111464bc  ldp  x22, x21, [sp, #0x60]
+0x111464c0  ldp  x29, x30, [sp, #0x40]
+0x111464c4  add  sp, sp, #0x80  ×128×
+0x111464c8  ret  
+  return_type (guess): unknown (no ret found)
+--- callees (5) ---
+  [CALL] fn=0xd05546c
+  --- disasm ---
+  0xd05546c  sub  sp, sp, #0x80  ×128×
+  0xd055470  stp  x29, x30, [sp, #0x20]
+  0xd055474  str  x27, [sp, #0x30]
+  0xd055478  stp  x26, x25, [sp, #0x40]
+  0xd05547c  stp  x24, x23, [sp, #0x50]
+  0xd055480  stp  x22, x21, [sp, #0x60]
+  0xd055484  stp  x20, x19, [sp, #0x70]
+  0xd055488  add  x29, sp, #0x20  ×32×
+  0xd05548c  mrs  x24, tpidr_el0
+  0xd055490  mov  x19, x0
+  0xd055494  mov  x0, x1
+  0xd055498  ldr  x8, [x24, #0x28]
+  0xd05549c  mov  x21, x3
+  0xd0554a0  mov  x23, x1
+  0xd0554a4  stur  x8, [x29, #0xfffffffffffffff8]
+  0xd0554a8  bl  0x134ef05c  ; CALL 0x134ef05c
+  0xd0554ac  ldr  x25, [x19, #0x8]
+  0xd0554b0  mov  x20, x0
+  0xd0554b4  cbz  x25, 0xd0554dc
+  0xd0554b8  fmov  d0, x25
+  0xd0554bc  cnt  v0.8b, v0.8b
+  0xd0554c0  uaddlv  h0, v0.8b
+  0xd0554c4  fmov  w8, s0
+  0xd0554c8  cmp  x8, #0x1
+  0xd0554cc  b.hi  0xd0554e0
+  0xd0554d0  sub  x9, x25, #0x1
+  0xd0554d4  and  x26, x9, x20
+  0xd0554d8  b  0xd0554f4  ; TAIL 0xd0554f4
+  0xd0554dc  b  0xd0555a4  ; TAIL 0xd0555a4
+  0xd0554e0  cmp  x20, x25
+  0xd0554e4  mov  x26, x20
+  0xd0554e8  b.lo  0xd0554f4
+  0xd0554ec  udiv  x9, x20, x25
+  0xd0554f0  msub  x26, x9, x25, x20
+  0xd0554f4  ldr  x9, [x19]
+  0xd0554f8  ldr  x9, [x9, x26, lsl #0x3]
+  0xd0554fc  cbz  x9, 0xd0555a4
+  0xd055500  ldr  x22, [x9]
+  0xd055504  cbz  x22, 0xd0555a4
+  0xd055508  cmp  x8, #0x2  ×2×
+  0xd05550c  b.hs  0xd055528
+  0xd055510  sub  x27, x25, #0x1
+  0xd055514  b  0xd055570  ; TAIL 0xd055570
+  0xd055518  cmp  x8, x26
+  0xd05551c  b.ne  0xd0555a4
+  0xd055520  ldr  x22, [x22]
+  0xd055524  cbz  x22, 0xd0555a4
+  0xd055528  ldr  x8, [x22, #0x8]
+  0xd05552c  cmp  x8, x20
+  0xd055530  b.ne  0xd055548
+  0xd055534  add  x0, x22, #0x10  ×16×
+  0xd055538  mov  x1, x23
+  0xd05553c  bl  0x134ee8c4  ; CALL 0x134ee8c4
+  0xd055540  tbz  w0, #0x0, 0xd055520
+  0xd055544  b  0xd05558c  ; TAIL 0xd05558c
+  0xd055548  cmp  x8, x25
+  0xd05554c  b.lo  0xd055518
+  0xd055550  udiv  x9, x8, x25
+  0xd055554  msub  x8, x9, x25, x8
+  0xd055558  b  0xd055518  ; TAIL 0xd055518
+  0xd05555c  and  x8, x8, x27
+  0xd055560  cmp  x8, x26
+  0xd055564  b.ne  0xd0555a4
+  0xd055568  ldr  x22, [x22]
+  0xd05556c  cbz  x22, 0xd0555a4
+  0xd055570  ldr  x8, [x22, #0x8]
+  0xd055574  cmp  x8, x20
+  0xd055578  b.ne  0xd05555c
+  0xd05557c  add  x0, x22, #0x10  ×16×
+  0xd055580  mov  x1, x23
+  0xd055584  bl  0x134ee8c4  ; CALL 0x134ee8c4
+  0xd055588  tbz  w0, #0x0, 0xd055568
+  0xd05558c  mov  x1, xzr
+  0xd055590  ldr  x8, [x24, #0x28]
+  0xd055594  ldur  x9, [x29, #0xfffffffffffffff8]
+  0xd055598  cmp  x8, x9
+  0xd05559c  b.eq  0xd0557ec
+  0xd0555a0  b  0xd055838  ; TAIL 0xd055838
+  0xd0555a4  mov  w0, #0x58  ×88×
+  0xd0555a8  add  x23, x19, #0x10  ×16×
+  0xd0555ac  bl  0x135d3f30  ; CALL 0x135d3f30
+  0xd0555b0  ldr  x1, [x21]
+  0xd0555b4  mov  x22, x0
+  0xd0555b8  stp  x0, x23, [sp]
+  0xd0555bc  strb  wzr, [sp, #0x10]
+  0xd0555c0  stp  xzr, x20, [x0], #0x10
+  0xd0555c4  bl  0x134eeae8  ; CALL 0x134eeae8
+  0xd0555c8  ucvtf  s1, x25
+  0xd0555cc  ldr  x8, [x19, #0x18]
+  0xd0555d0  ldr  s0, [x19, #0x20]
+  0xd0555d4  movi  v3.2d, #0x0
+  0xd0555d8  mov  w9, #0x1
+  0xd0555dc  add  x8, x8, #0x1
+  0xd0555e0  strb  w9, [sp, #0x10]
+  0xd0555e4  ucvtf  s2, x8
+  0xd0555e8  fmul  s1, s1, s0
+  0xd0555ec  stur  q3, [x22, #0x48]
+  0xd0555f0  stur  q3, [x22, #0x38]
+  0xd0555f4  fcmpe  s2, s1
+  0xd0555f8  cset  w9, gt
+  0xd0555fc  cbz  x25, 0xd055628
+  0xd055600  cbnz  w9, 0xd055628
+  0xd055604  ldr  x8, [x19]
+  0xd055608  ldr  x9, [sp]
+  0xd05560c  ldr  x8, [x8, x26, lsl #0x3]
+  0xd055610  cbz  x8, 0xd055738
+  0xd055614  ldr  x10, [x8]
+  0xd055618  str  x10, [x9]
+  0xd05561c  ldr  x22, [sp]
+  0xd055620  str  x22, [x8]
+  0xd055624  b  0xd0557cc  ; TAIL 0xd0557cc
+  0xd055628  lsl  x9, x25, #0x1
+  0xd05562c  cmp  x25, #0x3  ×3×
+  0xd055630  b.lo  0xd055644
+  0xd055634  sub  x10, x25, #0x1
+  0xd055638  tst  x25, x10
+  0xd05563c  cset  w10, ne
+  0xd055640  b  0xd055648  ; TAIL 0xd055648
+  0xd055644  mov  w10, #0x1
+  0xd055648  ucvtf  s1, x8
+  0xd05564c  orr  x9, x10, x9
+  0xd055650  fdiv  s0, s1, s0
+  0xd055654  frintp  s0, s0
+  0xd055658  fcvtzu  x8, s0
+  0xd05565c  cmp  x9, x8
+  0xd055660  csel  x21, x9, x8, hi
+  0xd055664  subs  x8, x21, #0x1
+  0xd055668  b.ne  0xd055674
+  0xd05566c  mov  w21, #0x2  ×2×
+  0xd055670  b  0xd055688  ; TAIL 0xd055688
+  0xd055674  tst  x21, x8
+  0xd055678  b.eq  0xd055688
+  0xd05567c  mov  x0, x21
+  0xd055680  bl  0x135d4080  ; CALL 0x135d4080
+  0xd055684  mov  x21, x0
+  0xd055688  ldr  x22, [x19, #0x8]
+  0xd05568c  cmp  x21, x22
+  0xd055690  b.ls  0xd0556a4
+  0xd055694  mov  x0, x19
+  0xd055698  mov  x1, x21
+  0xd05569c  bl  0xbe01774  ; CALL 0xbe01774
+  0xd0556a0  b  0xd055714  ; TAIL 0xd055714
+  0xd0556a4  b.hs  0xd055714
+  0xd0556a8  ldr  x8, [x19, #0x18]
+  0xd0556ac  ldr  s1, [x19, #0x20]
+  0xd0556b0  cmp  x22, #0x3  ×3×
+  0xd0556b4  ucvtf  s0, x8
+  0xd0556b8  fdiv  s0, s0, s1
+  0xd0556bc  frintp  s0, s0
+  0xd0556c0  fcvtzu  x0, s0
+  0xd0556c4  b.lo  0xd055700
+  0xd0556c8  fmov  d0, x22
+  0xd0556cc  cnt  v0.8b, v0.8b
+  0xd0556d0  uaddlv  h0, v0.8b
+  0xd0556d4  fmov  w8, s0
+  0xd0556d8  cmp  x8, #0x1
+  0xd0556dc  b.hi  0xd055700
+  0xd0556e0  sub  x8, x0, #0x1
+  0xd0556e4  mov  w9, #0x1
+  0xd0556e8  cmp  x0, #0x2  ×2×
+  0xd0556ec  clz  x8, x8
+  0xd0556f0  neg  x8, x8
+  0xd0556f4  lsl  x8, x9, x8
+  0xd0556f8  csel  x0, x0, x8, cc
+  0xd0556fc  b  0xd055704  ; TAIL 0xd055704
+  0xd055700  bl  0x135d4080  ; CALL 0x135d4080
+  0xd055704  cmp  x21, x0
+  0xd055708  csel  x21, x21, x0, hi
+  0xd05570c  cmp  x21, x22
+  0xd055710  b.lo  0xd055694
+  0xd055714  ldr  x25, [x19, #0x8]
+  0xd055718  sub  x8, x25, #0x1
+  0xd05571c  tst  x25, x8
+  0xd055720  b.ne  0xd055774
+  0xd055724  and  x26, x8, x20
+  0xd055728  ldr  x8, [x19]
+  0xd05572c  ldr  x9, [sp]
+  0xd055730  ldr  x8, [x8, x26, lsl #0x3]
+  0xd055734  cbnz  x8, 0xd055614
+  0xd055738  ldr  x8, [x19, #0x10]
+  0xd05573c  str  x8, [x9]
+  0xd055740  ldr  x8, [sp]
+  0xd055744  ldr  x9, [x19]
+  0xd055748  str  x8, [x19, #0x10]
+  0xd05574c  str  x23, [x9, x26, lsl #0x3]
+  0xd055750  ldr  x22, [sp]
+  0xd055754  ldr  x8, [x22]
+  0xd055758  cbz  x8, 0xd0557cc
+  0xd05575c  sub  x9, x25, #0x1
+  0xd055760  ldr  x8, [x8, #0x8]
+  0xd055764  tst  x25, x9
+  0xd055768  b.ne  0xd0557b0
+  0xd05576c  and  x8, x8, x9
+  0xd055770  b  0xd0557c0  ; TAIL 0xd0557c0
+  0xd055774  cmp  x20, x25
+  0xd055778  b.hs  0xd055794
+  0xd05577c  mov  x26, x20
+  0xd055780  ldr  x8, [x19]
+  0xd055784  ldr  x9, [sp]
+  0xd055788  ldr  x8, [x8, x20, lsl #0x3]
+  0xd05578c  cbnz  x8, 0xd055614
+  0xd055790  b  0xd055738  ; TAIL 0xd055738
+  0xd055794  udiv  x8, x20, x25
+  0xd055798  msub  x26, x8, x25, x20
+  0xd05579c  ldr  x8, [x19]
+  0xd0557a0  ldr  x9, [sp]
+  0xd0557a4  ldr  x8, [x8, x26, lsl #0x3]
+  0xd0557a8  cbnz  x8, 0xd055614
+  0xd0557ac  b  0xd055738  ; TAIL 0xd055738
+  0xd0557b0  cmp  x8, x25
+  0xd0557b4  b.lo  0xd0557c0
+  0xd0557b8  udiv  x9, x8, x25
+  0xd0557bc  msub  x8, x9, x25, x8
+  0xd0557c0  ldr  x9, [x19]
+  0xd0557c4  str  x22, [x9, x8, lsl #0x3]
+  0xd0557c8  ldr  x22, [sp]
+  0xd0557cc  ldr  x8, [x19, #0x18]
+  0xd0557d0  mov  w1, #0x1
+  0xd0557d4  add  x8, x8, #0x1
+  0xd0557d8  str  x8, [x19, #0x18]
+  0xd0557dc  ldr  x8, [x24, #0x28]
+  0xd0557e0  ldur  x9, [x29, #0xfffffffffffffff8]
+  0xd0557e4  cmp  x8, x9
+  0xd0557e8  b.ne  0xd055838
+  0xd0557ec  mov  x0, x22
+  0xd0557f0  ldp  x20, x19, [sp, #0x70]
+  0xd0557f4  ldr  x27, [sp, #0x30]
+  0xd0557f8  ldp  x22, x21, [sp, #0x60]
+  0xd0557fc  ldp  x24, x23, [sp, #0x50]
+  0xd055800  ldp  x26, x25, [sp, #0x40]
+  0xd055804  ldp  x29, x30, [sp, #0x20]
+  0xd055808  add  sp, sp, #0x80  ×128×
+  0xd05580c  ret  
+    return_type (guess): unknown (no ret found)
+  --- callees (22) ---
+    -> 0x134ef05c (depth limit)
+    -> 0x134ee8c4 (depth limit)
+    -> 0x134ee8c4 (depth limit)
+    -> 0x135d3f30 (depth limit)
+    -> 0x134eeae8 (depth limit)
+    -> 0x135d4080 (depth limit)
+    -> 0xbe01774 (depth limit)
+    -> 0x135d4080 (depth limit)
+    -> 0xd0554f4 (depth limit)
+    -> 0xd0555a4 (depth limit)
+    -> 0xd055570 (depth limit)
+    -> 0xd05558c (depth limit)
+    -> 0xd055518 (depth limit)
+    -> 0xd055838 (depth limit)
+    -> 0xd0557cc (depth limit)
+    -> 0xd055648 (depth limit)
+    -> 0xd055688 (depth limit)
+    -> 0xd055714 (depth limit)
+    -> 0xd055704 (depth limit)
+    -> 0xd0557c0 (depth limit)
+    -> 0xd055738 (depth limit)
+    -> 0xd055738 (depth limit)
+  -> 0x1114e3e0 (omitted)
+  -> 0xe831d98 (omitted)
+  -> 0x1114647c (omitted)
+  -> 0x1114647c (omitted)
+--- callers (14) ---
+  [CALLER] fn=0xa1bd1b0
+    params: x0=this
+  --- disasm ---
+  0xa1bd1b0  stp  x24, x20, [sp, #0x30]
+  0xa1bd1b4  str  x0, [sp, #0x40]
+  0xa1bd1b8  cbnz  w8, 0xa1bd2c8
+  0xa1bd1bc  mov  w24, wzr
+  0xa1bd1c0  stp  xzr, xzr, [x25]
+  0xa1bd1c4  b  0xa1bd2e8  ; TAIL 0xa1bd2e8
+  0xa1bd1c8  adrp  x0, 0x1407e000
+  0xa1bd1cc  add  x0, x0, #0x0
+  0xa1bd1d0  str  xzr, [sp, #0x20]
+  0xa1bd1d4  strb  wzr, [sp, #0x28]
+  0xa1bd1d8  bl  0xe82fe4c  ; CALL 0xe82fe4c
+  0xa1bd1dc  mov  w24, wzr
+  0xa1bd1e0  ldrb  w8, [sp, #0x28]
+  0xa1bd1e4  cbz  w8, 0xa1bd1f0
+  0xa1bd1e8  ldr  x0, [sp, #0x20]
+  0xa1bd1ec  bl  0xe82fe4c  ; CALL 0xe82fe4c
+  0xa1bd1f0  and  w8, w21, w24
+  0xa1bd1f4  cmp  w8, #0x1
+  0xa1bd1f8  b.ne  0xa1bd240
+  0xa1bd1fc  ldr  x8, [x19, #0x28]
+  0xa1bd200  cbz  x8, 0xa1bd27c
+  0xa1bd204  ldrb  w8, [x8]
+  0xa1bd208  tbz  w8, #0x0, 0xa1bd294
+  0xa1bd20c  ldr  x0, [x23]
+  0xa1bd210  bl  0xba102a4  ; CALL 0xba102a4
+  0xa1bd214  mov  x20, x0
+  0xa1bd218  ldr  x0, [x19, #0x18]
+  0xa1bd21c  mov  x21, x1
+  0xa1bd220  add  x1, sp, #0x8  ×8×
+  0xa1bd224  bl  0xb972da8  ; CALL 0xb972da8
+  0xa1bd228  tst  x21, #0xff  ×255×
+  0xa1bd22c  b.eq  0xa1bd240
+  0xa1bd230  cbz  x0, 0xa1bd240
+  0xa1bd234  ldr  x0, [x0]
+  0xa1bd238  mov  x1, x20
+  0xa1bd23c  bl  0x111463bc  ; CALL 0x111463bc
+  0xa1bd240  ldrb  w8, [sp, #0x8]
+  0xa1bd244  tbz  w8, #0x0, 0xa1bd250
+  0xa1bd248  ldr  x0, [sp, #0x18]
+  0xa1bd24c  bl  0xe803b10  ; CALL 0xe803b10
+  0xa1bd250  ldr  x8, [x22, #0x28]
+  0xa1bd254  ldur  x9, [x29, #0xfffffffffffffff8]
+  0xa1bd258  cmp  x8, x9
+  0xa1bd25c  b.ne  0xa1bd38c
+  0xa1bd260  ldp  x20, x19, [sp, #0x90]
+  0xa1bd264  ldp  x22, x21, [sp, #0x80]
+  0xa1bd268  ldp  x24, x23, [sp, #0x70]
+  0xa1bd26c  ldp  x26, x25, [sp, #0x60]
+  0xa1bd270  ldp  x29, x30, [sp, #0x50]
+  0xa1bd274  add  sp, sp, #0xa0  ×160×
+  0xa1bd278  ret  
+    return_type (guess): unknown (no ret found)
+  --- callees (7) ---
+    -> 0xe82fe4c (depth limit)
+    -> 0xe82fe4c (depth limit)
+    -> 0xba102a4 (depth limit)
+    -> 0xb972da8 (depth limit)
+    -> 0x111463bc (depth limit)
+    -> 0xe803b10 (depth limit)
+    -> 0xa1bd2e8 (depth limit)
+  caller @ 0xa1cf6e8 (omitted)
+  caller @ 0xa1cf72c (omitted)
+  caller @ 0xa5d85e8 (omitted)
+  caller @ 0xa764564 (omitted)
+  caller @ 0xa77a3d4 (omitted)
+  caller @ 0xae30168 (omitted)
+  caller @ 0xb921f80 (omitted)
+  caller @ 0x1112ffe8 (omitted)
+  caller @ 0x11130800 (omitted)
+  caller @ 0x11145608 (omitted)
+  caller @ 0x111471a8 (omitted)
+  caller @ 0x111496b0 (omitted)
+  caller @ 0x11157bd8 (omitted)

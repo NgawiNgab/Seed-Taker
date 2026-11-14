@@ -1,0 +1,26 @@
+# ST-011 zInput — consumer-side seed-origin hunt (issued 2026-11-14)
+# Context: producer-side (LevelData ctor src channel) is EXHAUSTED —
+# the ctor copies nothing 64-bit from src (F-082). The 64-bit world
+# seed must be found from its CONSUMERS: the settings copy-seed UI
+# (provably displays -3821773851083165131 on-device) and worldgen.
+# Run T1 first; T2 depends on T1. Return the output as zaphkiel_out-11.txt.
+
+# T1: method census of the seed-display handler (cheap STRUCT, like ST-004).
+STRUCT SeedHandler
+# If "not found", retry as: STRUCT GameSettingsHelperAnon::SeedHandler
+
+# T2 (conditional on T1): dump the seed-reading method — mechanical selector:
+#   (a) if T1 lists methods: fn<VA> of the method whose name/signature most
+#       suggests reading the seed value (prefer: Copy/Seed/String/value in
+#       the name; tie-break: smallest body). Goal: the object + offset (or
+#       getter call) the seed is read from.
+#   (b) if T1 lists NO methods: xref_tree<0x796b354870>
+#       (code/data referencing the createCopySeed$_0 symbol string, ST-001:237).
+
+# T3 (independent, cheap): backup front — NBT/serialization seed refs.
+findclass<RandomSeed>
+
+# Budget note: T2 is ONE fn<> on small UI glue (expect small); T1/T3 are
+# cheap censuses. Total should stay well under ST-010's 1094 lines.
+# Standing rules: counts != dumped contexts (F-038); verify callers by
+# site VA, never by fn label (F-066).

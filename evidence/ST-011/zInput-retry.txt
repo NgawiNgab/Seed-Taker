@@ -1,0 +1,21 @@
+# ST-011 retry zInput (issued 2026-11-14) — Run 1 notes: the bare
+# "STRUCT SeedHandler" went down the STRING path (misfire — needs angle
+# brackets like every other command); findclass<RandomSeed> correctly
+# returned "no typeinfo" (not a class — NBT key string only).
+# Both tasks below are independent — run together. Return the outputs.
+
+# T1-retry: method census (lowercase, angle brackets, NO space —
+# exactly like the earlier findclass<...>/fn<...> commands).
+struct<SeedHandler>
+# If "not found", retry as: struct<GameSettingsHelperAnon::SeedHandler>
+# If the output banner says STRING (not STRUCT), STOP and report that —
+# do not run anything else; the command path differs from expected.
+
+# T3-retry: raw string search for the NBT key (bare text, no command
+# wrapper — expect a STRING banner with .rodata hits, as in ST-001).
+RandomSeed
+
+# Still queued behind T1 (do NOT run yet): fn<VA> of the method whose
+# name most suggests reading the seed (prefer Copy/Seed/String/value;
+# tie-break: smallest body). It will be issued with an exact VA once
+# T1's method list is back.

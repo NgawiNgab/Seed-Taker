@@ -1,0 +1,21 @@
+=== Zaphkiel RE Framework ===
+config: /storage/emulated/0/Android/media/org.levimc.launcher/kurumi/zaphkiel_config.txt
+lib: /data/data/org.levimc.launcher/files/minecraft_libs/com.mojang.minecraftpe/arm64/libminecraftpe.so
+loaded 342231392 bytes
+segments: 7
+  fo=0x0  va=0x0  sz=0x13686ff0
+  fo=0x13686ff0  va=0x1368aff0  sz=0x97c010
+  fo=0x14002668  va=0x1400a668  sz=0x2fee38
+  fo=0x14304000  va=0x14310000  sz=0x10
+  fo=0x14308000  va=0x14318000  sz=0x1000
+  fo=0x1430c000  va=0x14320000  sz=0x352e80
+  fo=0x14660000  va=0x14678000  sz=0x260
+lib text bounds: 2 executable range(s)
+    0x0 - 0x13686ff0
+    0x14318000 - 0x14319000
+targets: 1
+
+============================================================
+STRING: "STRUCT SeedHandler"
+============================================================
+  NOT FOUND

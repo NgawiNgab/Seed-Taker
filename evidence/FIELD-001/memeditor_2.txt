@@ -1,0 +1,8 @@
+Attempt 2 (user report, 2026-11-14):
+
+Step 1 (AOB seed bytes 35 B2 4F 5A EE 54 F6 CA, scope All readable,
+max budget): Found 0 hits; scanned 4096 MiB (scan budget reached)
+
+Step 2 (Qword search "-3821773851083165131"): Result: just a bunch
+of Address and the value
+(byte inspection of a hit NOT done — list contents undescribed)

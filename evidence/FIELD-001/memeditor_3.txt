@@ -1,0 +1,25 @@
+Attempt 3 (user report, 2026-11-14):
+
+1. World Verification
+
+- World loaded: YES
+- World seed: "-3821773851083165131"
+- Confirmed: The loaded world uses the target seed.
+
+2. Memory Scan Results
+
+Search Value                      | Data Type / Mode | Results
+"-3821773851083165131"            | Auto (Qword results) | 3,848
+"1515172405" (lo32)               | Dword            | 3,860
+"3405141230" (hi32)               | Auto             | 1
+
+Additional observations:
+
+- The lo32 scan returned 3,860 addresses.
+- The hi32 scan returned 1 address at "0x799F1A2AE0", displaying
+  "9223372036854772" as its value.
+- The full seed scan returned 3,848 addresses, including multiple
+  Qword matches.
+
+Writable-scope AOB: Not yet tested. Only can show value-scan
+results, not a dedicated writable-scope AOB scan.

@@ -1,0 +1,5 @@
+Seed: unavailable (mismatch: pkt exp -3821773851083165131 got 0; src 0/7)
+
++ src+0x60=1 src+0x64=0 src+0x68 =0 src+0x6c=0 src+0x70 = 190099547488256 src+0x74 = 44261 src+0x78 =0
+
+Validate: armed, expected -3821773851083165131 [! outside int32 range: cannot match]

@@ -1,0 +1,27 @@
+# ST-012 zInput — the seed setter + the src seed getter (issued 2026-11-14)
+# Context: the "RandomSeed" NBT key loads as u64 into 0x111463bc(this, seed)
+# (ST-011 T3-string, F-084); the LevelData ctor calls the SAME setter with
+# 0x10b0ab28(src) (ST-007:2477, F-085) — same callee = same signature = ab28
+# returns the u64 seed from src. Two dumps resolve BOTH homes (LevelData-side
+# store + src-side load). All 3 tasks independent — run together.
+# Return zaphkiel_out-12.txt.
+
+# P0: THE seed setter — its body DEFINES the seed's home.
+fn<0x111463bc>
+# Predict: container insert at this+0x520/0x4f8 (the save side reads ONLY the
+# container), possibly plus a direct store. Any body is decisive.
+
+# P1: src's 64-bit seed getter — resolves the src-side offset.
+fn<0x10b0ab28>
+# Predict: ldr x0,[x0,#OFF2]; ret (OFF2 outside 0x60..0x78 — this explains
+# FIELD-001's 0/7). KILL-CONDITION: if the body shows a pointer-return
+# (adrp/string) or no ldr-x0 and no deep call, the value model FAILS —
+# report the body verbatim; ST-013 then re-examines (da10→0x11147d4c).
+
+# P2: UI front re-issue (cheap census; skipped in ST-011).
+struct<SeedHandler>
+# If "not found": struct<GameSettingsHelperAnon::SeedHandler>
+
+# Budget note: each fn<> may drag ~1050-line caller contexts (F-066 — the
+# ctor/NBT-loader will re-appear); ~3K lines total is acceptable.
+# Standing rules: counts != contexts (F-038); callers by site VA (F-066).

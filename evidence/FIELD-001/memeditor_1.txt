@@ -1,0 +1,5 @@
+Attempt 1 (user report, 2026-11-14):
+
+AOB search (seed bytes 35 B2 4F 5A EE 54 F6 CA): Found 0 hits; scanned 323 MiB
+
+Qword search "-3821773851083165131": 4038 result

@@ -107,3 +107,103 @@ behavior without seeing it.
 - `resolveVtableFunction` behavior on this build is trusted from the
   preloader API contract; if StartGameHandle fails to resolve on-device,
   the status line reports `capture: unresolved` (check log Rtti names).
+
+## FIELD-001 verdict + memory-editor hunt (on-device, user-operated)
+
+FIELD-001 (SP, known seed -3821773851083165131): ctor wrapper
+survived, scan verdict 0/7 — the seed is not in src+0x60..0x78
+(F-075/F-076). Next: live hunt with LeviMemEditor v1.5.0 (F-077):
+
+1. Load the known-seed SP world, open the editor (M button).
+2. Analyze → Hex signature `35 B2 4F 5A EE 54 F6 CA`, scope All
+   readable (else Writable), budget up. (Alternate: Results → Qword
+   exact search for -3821773851083165131 / 14624970222626386485.)
+3. Per hit: RVA inspector 128B view, record VA + surrounding bytes.
+4. Pointer-reference search on the hit / container base to identify
+   the holding object. Read-only: no freeze/write/hook.
+5. Return: hit VAs + surrounding bytes + pointer-ref results → maps
+   to struct+offset; if LevelData, extend the wrapper to x0 windows.
+
+## ST-011: consumer-side hunt (Zaphkiel, user-operated)
+
+Memory-editor path retired after 3 scoreless attempts (F-081). The
+ST-007 re-grep proved the LevelData ctor copies nothing 64-bit from
+src (F-082) — producer-side exhausted. ST-011 works from the seed's
+CONSUMERS: T1 `STRUCT SeedHandler` (the copy-seed UI provably
+displays the live seed on-device); T2 conditional `fn<>` on the
+seed-reading method; T3 `findclass<RandomSeed>` backup. Input filed
+at `evidence/ST-011/zInput.txt`; return `zaphkiel_out-11.txt`.
+
+Run 1 (2026-11-14, PARTIAL, F-083): T1 misfired — bare STRUCT went
+down the STRING path (retry: `struct<SeedHandler>`); T3 correctly
+negative (RandomSeed has no typeinfo — NBT key only, retry as raw
+string search + xref). Retry input: `evidence/ST-011/zInput-retry.txt`.
+Side proof: lib size 342231392 B ≈ 326 MiB confirms memeditor
+attempt-1's 323 MiB scan was .so-only (F-078).
+
+## ST-012: setter + src getter dumps (Zaphkiel, user-operated)
+
+ST-011 T3-string found the seed loop (F-084) and setter-sharing
+proved ab28 = src's u64 seed getter (F-085). ST-012 resolves BOTH
+homes: P0 `fn<0x111463bc>` (setter body — predict container insert,
+possibly + direct store) + P1 `fn<0x10b0ab28>` (predict `ldr
+x0,[x0,#OFF2]` — explains FIELD-001's 0/7; kill-condition stated) +
+P2 `struct<SeedHandler>` re-issue. Input:
+`evidence/ST-012/zInput.txt`; return `zaphkiel_out-12.txt` (~3K
+lines acceptable). Clean resolution ⇒ runtime read design.
+
+## Window-8 implementation (ST-012 resolution, uncommitted)
+
+ST-012 resolved both homes: LevelData-side = container rule
+(this+0x4f8, type-7, +0x38 — F-086, no direct member); src-side =
+src+0x0 (F-087). Implementation: 8th scan window at src+0x0
+(window 0 = prediction, windows 1-7 = negative controls) —
+consts-only change (`Seed.hpp` + `SrcScan.hpp` comments; all loops
+already count-driven; hook untouched). On-device verdict: +0x0
+match with 0/7 controls = Recovered (perfect discrimination).
+Staleness: nil by idempotence (fallback: hook the setter).
+Committed in PR #4; on-device result: local + LAN CORRECT (F-088).
+
+## Setter hook: the server path (F-088, implemented — uncommitted)
+
+Window-8 fixed local play and left the big Survival Server with no
+seed: `pkt ... got 0; src 0/8`, windows `+0x0=-1, +0x60=1,
++0x64..+0x78=0`. Both failures are structural, not tuning:
+
+- the packet leg reads the LEGACY INT32 `StartGamePacket+0xA8`
+  (F-058/F-087) — an old 32-bit field, always 0 on a server;
+- the src snapshot is taken at ctor ENTRY, and on the MP path the
+  server seed is written into src only AFTER the ctor runs, so the
+  snapshot sees a placeholder (`-1`).
+
+So the seed must be captured where it is REGISTERED, not where it is
+stored. `LevelData`'s seed setter `0x111463bc` is that point (F-086):
+`setter(this, seed)` with the u64 in x1, called by NBT load, the ctor,
+and the network path alike. DESIGN:
+
+- **Hook**: detour at `libraryBase("libminecraftpe.so") +
+  0x111463bc`; install is gated on TWO `bl` words inside the function
+  (`0x11146414`=`0x96FC3C16`, `0x11146494`=`0x94001FD3`, script-
+  computed and cross-checked against the ctor anchor `0x97E75B05`).
+  Anchor mismatch ⇒ refuse to patch (fail-safe, no wrong-function
+  patch). Prologue is a normal `sub sp,#0x80` frame — safely hookable
+  (the ≤16-byte-getter rule of F-073 does not apply).
+- **Publish**: full `int64` through a seqlock (odd sequence = write in
+  flight; reader retries, bounded) — the 32-bit packed atomic of the
+  legacy sources cannot carry the seed.
+- **Priority**: verified src window > setter > legacy packet/object.
+  The setter is authoritative and shows a value whenever it has fired;
+  confidence is Recovered once validated, Inferred otherwise (the seed
+  is still the seed — it is never withheld for lack of a check).
+- **Re-validation**: compared on EVERY new sequence (last call wins),
+  so a placeholder registered early on a network load can never latch
+  a stale mismatch (the ctor may register before the server value).
+- **Range guard removed**: the `[! outside int32 range: cannot match]`
+  caveat is obsolete — setter and src windows carry full int64, so an
+  out-of-int32 expectation can and must be able to match.
+- **Unchanged**: legacy packet/object legs stay as cross-checks; the
+  src windows stay as negative controls; nothing logs or allocates in
+  any detour.
+
+Host syntax gate 12/12. Pending: Survival Server re-test on-device
+(the setter must report as `capture: setter (primary)`), then PR.
