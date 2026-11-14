@@ -39,7 +39,7 @@ void SeedModule::drainCapture() {
         // Same latent-mismatch rule as the src windows (F-089): keep
         // re-checking until a match latches; a mismatch is only a verdict
         // for the value that happened to be in the slot at the time.
-        if (m_validationArmed && m_hasExpectedSeed && !m_packet.verified) {
+        if (m_validationArmed && m_expectedSeedUsable() && !m_packet.verified) {
             if (static_cast<std::int64_t>(packet.seed) == m_expectedSeed) {
                 m_packet.verified = true;
                 m_validationPassed = true;
@@ -56,7 +56,7 @@ void SeedModule::drainCapture() {
     if (object.sequence != 0 && object.sequence != m_object.sequence) {
         m_object.sequence = object.sequence;
         m_object.value = object.seed;
-        if (m_validationArmed && m_hasExpectedSeed && !m_object.verified) {
+        if (m_validationArmed && m_expectedSeedUsable() && !m_object.verified) {
             if (static_cast<std::int64_t>(object.seed) == m_expectedSeed) {
                 m_object.verified = true;
                 m_validationPassed = true;
@@ -85,7 +85,7 @@ void SeedModule::drainCapture() {
         // which values, which is exactly what decides the server question.
         pl::log::Logger::getOrCreate("SeedTaker")
             .info("Seed setter #{} registered {}", setter.sequence, setter.seed);
-        if (m_validationArmed && m_hasExpectedSeed) {
+        if (m_validationArmed && m_expectedSeedUsable()) {
             if (setter.seed == m_expectedSeed) {
                 m_setter.verified = true;
                 m_setter.failed = false;
@@ -101,6 +101,58 @@ void SeedModule::drainCapture() {
         }
     }
 
+    // Packet band (F-092): the decoded StartGame payload. This is the only
+    // source that is populated on a server, so it is drained first-class
+    // rather than as a debug side-line. A candidate only counts once it has
+    // been validated against a known seed (see the selection below) — until
+    // then we cannot tell the seed slot from its neighbours in the band.
+    for (std::size_t i = 0; i < sdk::offsets::seed::PacketSeedBandCount; ++i) {
+        const auto band = capture::SeedCapture::packetBandReading(i);
+        auto& st = m_band[i];
+        if (band.sequence == 0 || band.sequence == st.sequence) continue;
+        st.sequence = band.sequence;
+        st.offset = band.offset;
+        st.value = band.value;
+        if (m_validationArmed && m_expectedSeedUsable()) {
+            if (band.value == m_expectedSeed) {
+                st.verified = true;
+                st.failed = false;
+                m_validationPassed = true;
+                pl::log::Logger::getOrCreate("SeedTaker")
+                    .info("Packet seed band CONFIRMED at LevelSettings+0x{:x} = {}", band.offset, band.value);
+            } else {
+                st.failed = true;
+            }
+        }
+    }
+
+    // Packet band (F-092): the decoded StartGame payload, at the copy-ctor
+    // call. This is the ONLY source populated on a server (the packet path
+    // never reaches the setter — F-091/F-092), so it is drained first-class.
+    // A slot only counts as the seed once it matches a known seed in a
+    // known-answer world; the band is scanned because the exact index inside
+    // LevelSettings is not statically proven (F-090 discipline).
+    for (std::size_t i = 0; i < sdk::offsets::seed::PacketSeedBandCount; ++i) {
+        const auto band = capture::SeedCapture::packetBandReading(i);
+        auto& bst = m_band[i];
+        if (band.sequence == 0 || band.sequence == bst.sequence) continue;
+        bst.sequence = band.sequence;
+        bst.offset = band.offset;
+        bst.value = band.value;
+        if (m_validationArmed && m_expectedSeedUsable()) {
+            if (band.value == m_expectedSeed) {
+                bst.verified = true;
+                bst.failed = false;
+                m_validationPassed = true;
+                pl::log::Logger::getOrCreate("SeedTaker")
+                    .info("Packet seed band CONFIRMED at LevelSettings+0x{:x} = {}",
+                          band.offset, band.value);
+            } else {
+                bst.failed = true;
+            }
+        }
+    }
+
     for (std::size_t w = 0; w < sdk::offsets::seed::SrcScanWindowCount; ++w) {
         const auto snap = capture::SrcScan::windowReading(w);
         auto& st = m_srcWindows[w];
@@ -111,7 +163,7 @@ void SeedModule::drainCapture() {
             // ctor-entry snapshot sees only a placeholder, and the real
             // value can land later — latching would make it unwinnable.
             // An actual match always latches (nothing can unsay it).
-            if (m_validationArmed && m_hasExpectedSeed && !st.verified) {
+            if (m_validationArmed && m_expectedSeedUsable() && !st.verified) {
                 if (snap.value == m_expectedSeed) {
                     st.verified = true;
                     st.failed = false;
@@ -138,9 +190,40 @@ void SeedModule::drainCapture() {
     const bool packetUsable = m_packet.sequence != 0 && !m_packet.failed;
     const bool objectUsable = m_object.sequence != 0 && !m_object.failed;
     const bool setterUsable = m_setter.sequence != 0 && !m_setter.failed;
+    std::size_t bandVerified = sdk::offsets::seed::PacketSeedBandCount;
+    for (std::size_t i = 0; i < sdk::offsets::seed::PacketSeedBandCount; ++i) {
+        if (m_band[i].verified && bandVerified == sdk::offsets::seed::PacketSeedBandCount) {
+            bandVerified = i;
+        }
+    }
     std::size_t verifiedSrc = sdk::offsets::seed::SrcScanWindowCount;
     std::size_t srcLatched = 0;
     std::size_t srcVerified = 0;
+    // Packet band (F-092): the decoded StartGame payload. This is the only
+    // source that is populated on a server, so it is drained first-class
+    // rather than as a debug side-line. A candidate only counts once it has
+    // been validated against a known seed (see the selection below) — until
+    // then we cannot tell the seed slot from its neighbours in the band.
+    for (std::size_t i = 0; i < sdk::offsets::seed::PacketSeedBandCount; ++i) {
+        const auto band = capture::SeedCapture::packetBandReading(i);
+        auto& st = m_band[i];
+        if (band.sequence == 0 || band.sequence == st.sequence) continue;
+        st.sequence = band.sequence;
+        st.offset = band.offset;
+        st.value = band.value;
+        if (m_validationArmed && m_expectedSeedUsable()) {
+            if (band.value == m_expectedSeed) {
+                st.verified = true;
+                st.failed = false;
+                m_validationPassed = true;
+                pl::log::Logger::getOrCreate("SeedTaker")
+                    .info("Packet seed band CONFIRMED at LevelSettings+0x{:x} = {}", band.offset, band.value);
+            } else {
+                st.failed = true;
+            }
+        }
+    }
+
     for (std::size_t w = 0; w < sdk::offsets::seed::SrcScanWindowCount; ++w) {
         if (m_srcWindows[w].latched) ++srcLatched;
         if (m_srcWindows[w].verified) {
@@ -165,6 +248,17 @@ void SeedModule::drainCapture() {
         std::snprintf(label, sizeof(label), "src-scan:src+0x%zx",
                       sdk::offsets::seed::SrcScanWindows[verifiedSrc]);
         m_reading.value = m_srcWindows[verifiedSrc].value;
+        m_reading.source = label;
+        m_reading.confidence = SeedConfidence::Recovered;
+        m_reading.detail = "runtime-validated";
+    } else if (bandVerified != sdk::offsets::seed::PacketSeedBandCount) {
+        // A band slot matched a known seed: that slot IS the wire seed, so
+        // it outranks everything derived locally (the setter never sees a
+        // server seed — F-092).
+        const auto& st = m_band[bandVerified];
+        char label[64];
+        std::snprintf(label, sizeof(label), "startgame:LevelSettings+0x%zx", st.offset);
+        m_reading.value = st.value;
         m_reading.source = label;
         m_reading.confidence = SeedConfidence::Recovered;
         m_reading.detail = "runtime-validated";
@@ -301,6 +395,38 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
         }
     }
 
+    // Packet band debug (F-092): on a server this is the ONLY line that can
+    // move. It shows whether the StartGame copy-ctor fired at all (burst=0
+    // means the hook never ran) and what the two candidates held. Values are
+    // marked UNVERIFIED while no known seed has picked one, so a raw
+    // candidate can never be mistaken for a recovered seed.
+    {
+        char band[192];
+        if (m_band[0].sequence == 0 && m_band[1].sequence == 0) {
+            std::snprintf(band, sizeof(band), "packet band: none (%s)",
+                          capture::SeedCapture::burstHookActive() ? "hooked, no StartGame yet"
+                                                                  : "NOT INSTALLED");
+        } else {
+            std::snprintf(band, sizeof(band),
+                          "packet band: +0x%zx=%lld%s  +0x%zx=%lld%s",
+                          m_band[0].offset, static_cast<long long>(m_band[0].value),
+                          m_band[0].verified ? " <SEED>" : (m_band[0].failed ? "" : " ?"),
+                          m_band[1].offset, static_cast<long long>(m_band[1].value),
+                          m_band[1].verified ? " <SEED>" : (m_band[1].failed ? "" : " ?"));
+        }
+        DrawCommand b{};
+        b.type = DrawCommandType::Text;
+        b.x = m_hudPosX;
+        b.y = y;
+        b.w = 900.0f;
+        b.h = m_textSize + 8.0f;
+        b.color = 0xFFFFD166;
+        b.size = m_textSize;
+        b.text = band;
+        commands.push_back(b);
+        y += m_textSize + 8.0f;
+    }
+
     // Setter debug (F-089): the one line that decides the server question,
     // shown with or without validation armed. "fires=0" means the server
     // seed never passes through 0x111463bc (premise F-086 falsified for
@@ -403,6 +529,10 @@ void SeedModule::loadConfig(const nlohmann::json& j) {
             m_object.failed = false;
             m_setter.verified = false;
             m_setter.failed = false;
+            for (auto& b : m_band) {
+                b.verified = false;
+                b.failed = false;
+            }
             for (auto& st : m_srcWindows) {
                 st.verified = false;
                 st.failed = false;

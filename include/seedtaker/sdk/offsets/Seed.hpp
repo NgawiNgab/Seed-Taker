@@ -33,9 +33,37 @@ inline constexpr std::size_t HandlerStartGameSlot = 37;
 // detour requires this id before trusting the seed offset (F-055).
 inline constexpr int StartGamePacketId = 0x0B;
 inline constexpr std::size_t StartGameIdSlot = 2;
-// Packet-relative int32 traced packet -> src+0x78 -> LevelData.+0x3b0
-// (payload+0x78, payload base = packet+0x30; F-049, ST-008).
+// LEGACY int32 leg, REFUTED for seed purposes (F-090/F-092): the wire seed
+// is an int64 (codec v527+), so this int32 slot is a different field. Kept
+// only so the old cross-check still compiles and reports "got 0" loudly.
 inline constexpr std::size_t StartGameSeedOffset = 0xA8;
+
+// --- Packet-side seed capture (F-092) ---------------------------------
+// The StartGame handler 0xa2faa10 copies the decoded payload into its own
+// stack frame: `add x0, sp, #0x7d0; add x1, x20, #0x30; bl 0x9b56e60`
+// (0xa2fabcc..0xa2fabd4). x20 is the packet, so the SOURCE of that copy is
+// packet+0x30 = LevelSettings, and the seed is inside LevelSettings.
+//
+// The copy-ctor then does an overlapping `ldur q0,[x1,#0xc]; ldr q1,[x1]`
+// pair which moves src+0x00..0x20, so the seed is somewhere in
+// [src+0x0C, src+0x1C) — a 16-byte band. Its exact index is NOT proven:
+// the codec puts `seed` first in LevelSettings (= +0x0C), but an unverified
+// offset is exactly what cost us the +0xA8 leg, so we scan the band and let
+// a known-answer world pick the index at runtime.
+inline constexpr std::uintptr_t StartGameHandlerFileVA = 0xa2faa10;
+// Payload copy-ctor: seed of the packet-side hook (F-092).
+// `sub sp,#0x90; stp x29,x30,[sp,#0x30]; ...` — the first `bl` is 23
+// instructions in, so it clears the F-073 "never hook under 16 bytes" rule
+// with a wide margin. Anchored by the two words below; both are computed
+// from the disassembly and cross-checked against the known ctor anchor.
+inline constexpr std::uintptr_t PayloadCopyCtorFileVA = 0x9b56e60;
+inline constexpr std::uint32_t PayloadCopyCtorWord0 = 0xD10243FFu; // sub  sp, sp, #0x90
+inline constexpr std::uint32_t PayloadCopyCtorWord1 = 0xA9837BFDu; // stp  x29, x30, [sp, #0x30]
+// Band scanned on the packet side, relative to the copy SOURCE (x1), i.e.
+// relative to LevelSettings. 16 bytes covers the q0/q1 store pair above.
+inline constexpr std::size_t PacketSeedBandBase = 0x0C;
+inline constexpr std::size_t PacketSeedBandStride = 8;
+inline constexpr std::size_t PacketSeedBandCount = 2; // +0x0C and +0x14
 
 // LevelSettings int32 getter, file VA (F-048): `ldr w0,[x0,#0x78];ret`.
 // NEVER HOOK THIS (F-073): the 8-byte function was hooked first and the
