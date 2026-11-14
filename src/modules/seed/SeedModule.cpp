@@ -403,9 +403,11 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
     {
         char band[192];
         if (m_band[0].sequence == 0 && m_band[1].sequence == 0) {
+            // "none" hides three very different failures (never attempted /
+            // anchor mismatch / install refused). Report the capture-side
+            // verdict instead of a generic bucket — F-096.
             std::snprintf(band, sizeof(band), "packet band: none (%s)",
-                          capture::SeedCapture::burstHookActive() ? "hooked, no StartGame yet"
-                                                                  : "NOT INSTALLED");
+                          capture::SeedCapture::burstStatus());
         } else {
             std::snprintf(band, sizeof(band),
                           "packet band: +0x%zx=%lld%s  +0x%zx=%lld%s",
@@ -482,8 +484,14 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
 
 void SeedModule::onFrame() {
     if (!enabled || !m_showHud) return;
-    // Install is idempotent: retry until live (covers enable-before-load).
-    if (!capture::SeedCapture::packetHookActive() || !capture::SeedCapture::setterHookActive()) {
+    // Install is idempotent: retry until EVERY source is live (covers
+    // enable-before-library-load). The burst source must be part of this
+    // condition — F-096: it was omitted, so once the packet and setter hooks
+    // were live install() was never called again and a first-frame
+    // "library unresolved" left the packet leg dead for the whole session.
+    if (!capture::SeedCapture::packetHookActive()
+        || !capture::SeedCapture::setterHookActive()
+        || !capture::SeedCapture::burstHookActive()) {
         capture::SeedCapture::install();
     }
     if (!capture::SrcScan::active()) capture::SrcScan::install();

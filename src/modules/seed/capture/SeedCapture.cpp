@@ -356,6 +356,16 @@ bool SeedCapture::burstHookActive() {
     return burstHook != nullptr;
 }
 
+const char* SeedCapture::burstStatus() {
+    if (burstHook) return "live";
+    switch (burstState.load(std::memory_order_acquire)) {
+    case SetterHookUnresolved: return "library unresolved";
+    case SetterHookAnchorBad: return "anchor mismatch";
+    case SetterHookInstallFail: return "install failed";
+    default: return "not attempted";
+    }
+}
+
 CaptureReading SeedCapture::packetReading() {
     const auto packed = packetPacked.load(std::memory_order_acquire);
     return CaptureReading{packed >> 32, static_cast<std::int32_t>(packed & 0xFFFFFFFFu)};

@@ -77,6 +77,10 @@ public:
     static bool levelInitHookActive();
     static bool setterHookActive();
     static bool burstHookActive();
+    // Why the packet-side hook is (or is not) live, as a short static
+    // string: "live", "not attempted", "anchor mismatch", "install failed",
+    // "library unresolved". A bare "not installed" is not diagnosable.
+    static const char* burstStatus();
     static CaptureReading packetReading();
     static CaptureReading objectReading();
     static SetterReading setterReading();
