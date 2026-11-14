@@ -17,6 +17,7 @@ package_end()
 
 add_requires("preloader")
 add_requires("nlohmann_json v3.11.3")
+add_requires("fmt")
 
 target("SeedTaker")
     set_kind("shared")
