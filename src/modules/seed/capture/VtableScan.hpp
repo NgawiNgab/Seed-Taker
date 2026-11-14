@@ -24,4 +24,9 @@ std::uintptr_t resolveVtableBase(const char* rttiName, std::size_t firstSlot,
 // "base unverifiable" — callers must treat both as "do not call".
 bool isLevelDataInstance(const void* instance);
 
+// Load bias (dlpi_addr) of a loaded library, or 0 when not found. Added
+// for the src-getter hook (F-072): live = base + file VA for ET_DYN
+// libraries (cf. ST-005's recorded slide, live−file).
+std::uintptr_t libraryBase(const char* libraryName);
+
 }

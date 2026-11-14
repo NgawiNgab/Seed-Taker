@@ -9,6 +9,7 @@
 // through the confidence pipeline (SeedReading) and never as a bare fact.
 
 #include <cstddef>
+#include <cstdint>
 
 namespace seedtaker::sdk::offsets::seed {
 
@@ -34,5 +35,28 @@ inline constexpr std::size_t StartGameIdSlot = 2;
 // Packet-relative int32 traced packet -> src+0x78 -> LevelData.+0x3b0
 // (payload+0x78, payload base = packet+0x30; F-049, ST-008).
 inline constexpr std::size_t StartGameSeedOffset = 0xA8;
+
+// LevelSettings int32 getter, file VA (F-048): `ldr w0,[x0,#0x78];ret`.
+// NEVER HOOK THIS (F-073): the 8-byte function was hooked first and the
+// ≥12-byte inline patch destroyed the neighbor 0x10b1da10 → SIGILL.
+// Kept as the anchor-target reference (see the ctor `bl` words below).
+inline constexpr std::uintptr_t SrcGetterFileVA = 0x10b1da08;
+// LevelData ctor, file VA (F-045): the SrcScan hook target (F-074).
+// ~4KB with a straight-line 16B prologue — ample patch room,
+// trampoline-safe. Live = libraryBase("libminecraftpe.so") + VA (ET_DYN).
+inline constexpr std::uintptr_t LevelDataCtorFileVA = 0x11146b24;
+// Pre-hook anchors: two `bl` words inside the ctor (ST-007), verified to
+// prove slide + function identity (fail-safe: refuse on mismatch).
+// 0x11146df4: `bl 0x10b1da08` → 0x97E75B05; 0x11146da8: `bl 0x10b1db08`
+// → 0x97E75B58 (machine-verified; hand computation errs — cross-check).
+inline constexpr std::uintptr_t LevelDataCtorBlSite1 = 0x11146df4;
+inline constexpr std::uint32_t LevelDataCtorBlWord1 = 0x97E75B05u;
+inline constexpr std::uintptr_t LevelDataCtorBlSite2 = 0x11146da8;
+inline constexpr std::uint32_t LevelDataCtorBlWord2 = 0x97E75B58u;
+// 7 int64 snapshot windows over the src cluster (F-071). Every window
+// lies in a 16B chunk anchored by a known game read (0x64 / 0x78),
+// so all reads stay mapped by malloc granularity (16B, Android arm64).
+inline constexpr std::size_t SrcScanWindowCount = 7;
+inline constexpr std::size_t SrcScanWindows[SrcScanWindowCount] = {0x60, 0x64, 0x68, 0x6c, 0x70, 0x74, 0x78};
 
 }
