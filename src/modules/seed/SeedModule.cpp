@@ -39,8 +39,7 @@ void SeedModule::drainCapture() {
             } else {
                 m_packet.failed = true;
                 pl::log::Logger::getOrCreate("SeedTaker")
-                    .warn("Seed validation MISMATCH (packet): expected "
-                          + std::to_string(m_expectedSeed) + ", got " + std::to_string(packet.seed));
+                    .warn("Seed validation MISMATCH (packet): expected {}, got {}", m_expectedSeed, packet.seed);
             }
         }
     }
@@ -159,6 +158,24 @@ void SeedModule::onFrame() {
     float y = m_hudPosY;
     renderReading(commands, y);
     submitDrawCommands(moduleId, commands);
+}
+
+bool SeedModule::onMenuConfigChanged(std::string_view key, std::string_view value) {
+    if (key != "validateExpectedSeed") return false;
+    // Full-int64 menu path: the generic ModuleMenu funnel parses integers
+    // via strtol-into-int and would truncate seeds outside the 32-bit
+    // range. Invalid input keeps the previous value; empty clears it.
+    const std::string text(value);
+    if (text.empty()) {
+        m_hasExpectedSeed = false;
+        return true;
+    }
+    char* end = nullptr;
+    const long long parsed = std::strtoll(text.c_str(), &end, 10);
+    if (end == text.c_str() || *end != '\0') return true;
+    m_expectedSeed = static_cast<std::int64_t>(parsed);
+    m_hasExpectedSeed = true;
+    return true;
 }
 
 void SeedModule::loadConfig(const nlohmann::json& j) {

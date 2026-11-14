@@ -26,7 +26,7 @@ target("SeedTaker")
     add_files("src/main.cpp", "src/core/**.cpp", "src/config/*.cpp", "src/launcher/*.cpp", "src/modules/**.cpp")
     add_includedirs("include", {public = true})
     add_includedirs("src")
-    add_packages("preloader", "nlohmann_json")
+    add_packages("preloader", "nlohmann_json", "fmt")
 
     if is_plat("android") then
         add_cxflags("-fPIC", "-O2", "-ffunction-sections", "-fdata-sections", "-fexceptions", "-w")
