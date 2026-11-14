@@ -62,12 +62,13 @@ line when packet != object + validation line while armed.
 ## Build
 
 `src/modules/**.cpp` globs pick up the new files; no xmake change needed.
-Verification so far (F-056): all 11 TUs pass a host `g++ -fsyntax-only`
-gate against mirrored stub headers, which caught one real skeleton bug
-(missing `FrameEvent.hpp` includes, fixed). This is NOT a compile proof:
-no NDK here, so the first CI build (`build.yml`, NDK r28c) remains the
-compile gate, and any errors there are fixed before on-device testing.
-Never claim a green build without seeing it.
+Verification (F-056/F-057/F-008): all 11 TUs pass a host `g++ -fsyntax-only`
+gate against mirrored stub headers, then the first CI build (`build.yml`,
+NDK r28c, 2026-11-14) went green after two fixes (`fmt` in `add_packages`,
+missing `onMenuConfigChanged` definition): compile + link + levipack +
+artifact upload all pass. The compile gate is CLEAR; the remaining gate is
+on-device runtime validation (protocol below). Never claim on-device
+behavior without seeing it.
 
 ## Runtime validation protocol (on-device, user-operated)
 
