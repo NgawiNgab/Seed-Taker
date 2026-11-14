@@ -55,6 +55,11 @@ private:
         std::int32_t value = 0;
         bool verified = false; // Runtime-validated against a known seed.
         bool failed = false;   // Failed validation; excluded until re-armed.
+        // Snapshot of the one-shot comparison for HUD display (logcat is
+        // not reachable for most on-device users, so "see log" alone is
+        // a dead end — the values must be visible here).
+        std::int64_t mismatchExpected = 0;
+        std::int32_t mismatchGot = 0;
     };
 
     void drainCapture();
