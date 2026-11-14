@@ -1,0 +1,706 @@
+# F-088 review — setter hook for the Survival Server seed
+
+**Status: UNCOMMITTED, awaiting your review.** Branch
+`arena/4c14c35f-seed-taker` (PR #4 already open and CI-green at
+`0b33ef9`). Nothing below is pushed, and nothing here has been run on
+a device.
+
+## The problem this addresses
+
+Your three-path on-device result:
+
+| Path | src+0x0 | Outcome |
+|------|---------|---------|
+| Local world | correct seed | F-087 confirmed on-device |
+| LAN / friend's world | correct seed | F-087 confirmed on-device |
+| Big Survival Server | `-1` | no seed (0/8), pkt got 0 |
+
+Two independent reasons the server path cannot work by reading stored
+fields, both visible in the code:
+
+1. **The packet leg is int32.** `SeedCapture.cpp` reads
+   `StartGamePacket+0xA8` into an `int32_t` (legacy 32-bit slot, F-058/
+   F-087). It is `0` on a server, so it can never carry
+   `-6348884760859271012`.
+2. **The src snapshot is taken at ctor entry.** `SrcScan.cpp` snapshots
+   the windows inside the LevelData *constructor* hook. On a
+   multiplayer load the server seed is written into src *after* the
+   ctor returns, so at snapshot time the slot still holds a
+   placeholder (`-1`, and `+0x60=1` with everything else 0 = nothing
+   populated yet).
+
+Conclusion: the seed must be captured **where it is registered**, not
+where it is stored. `LevelData`'s setter `0x111463bc` is that point
+(F-086): `setter(this, seed)`, u64 in `x1`, called by NBT load, the
+ctor, and the network path alike.
+
+## What the change does
+
+- **Hook target**: `libraryBase("libminecraftpe.so") + 0x111463bc`.
+- **Anchor gate**: two `bl` words inside the function
+  (`0x11146414` = `0x96FC3C16`, `0x11146494` = `0x94001FD3`) are read
+  with `memcpy` and compared before patching. Mismatch ⇒ refuse.
+  Both were computed by script and the encoding formula was verified
+  by reproducing the known ctor anchor `0x97E75B05`.
+- **Publish**: full `int64` through a seqlock (odd sequence = write in
+  flight; reader retries, 8 attempts max). The legacy paths keep their
+  32-bit packed atomics because they only carry int32.
+- **Priority**: verified src window > setter > legacy packet/object.
+- **Validation**: re-run on *every* new registration, so an early
+  placeholder cannot latch a stale verdict (see the bug note below).
+- **Range caveat removed**: `[! outside int32 range: cannot match]` is
+  gone — with int64 sources an out-of-int32 expectation can match.
+- **Diagnostics**: one log line per registration
+  (`Seed setter #N registered <value>`), and the status string
+  distinguishes `setter (primary)` / `armed, no registration yet` /
+  `setter anchor mismatch; legacy` / `setter unresolved` /
+  `setter install failed`.
+
+## Self-review: what I fixed while writing it
+
+- **Bug found and fixed**: my first cut validated the setter once and
+  latched the verdict (`m_setter.latched`). That directly contradicts
+  the "last call wins" contract of the detour — on a server the ctor
+  may register a placeholder first, and a one-shot latch would have
+  permanently recorded "mismatch" for a seed that later became
+  correct. Removed the latch; revalidation now happens per sequence.
+  *The exact failure mode you just reported, reintroduced one layer
+  up — worth knowing it was there.*
+- **Per-frame waste avoided**: `dl_iterate_phdr` is not re-run every
+  frame once the hook state is terminal (anchor mismatch / install
+  refusal).
+- `memcpy` anchor reads (as `SrcScan.cpp` does) instead of
+  type-punning through a `reinterpret_cast` load, so alignment cannot
+  bite.
+- Local `SetterHookState` enum renamed so it does not read like
+  `SeedModule::SetterState`.
+
+## Known limits — read these before trusting the run
+
+1. **The premise is F-086's, not proven here.** The fix assumes every
+   path funnels the seed through `0x111463bc`. If the Survival Server
+   never calls it, the correct outcome of the test is "hook armed, no
+   registration yet" — a real result, not a bug in the build.
+2. **x1 = seed is an AAPCS64 + call-site inference** (F-085: the ctor
+   calls `setter(this, ab28(src))`). If the server variant uses a
+   different overload/wrapper, the captured value would be wrong, not
+   absent. The log line makes that visible: a value that is not the
+   server seed falsifies the premise rather than silently passing.
+3. **Not device-tested.** Host gate is 12/12 `-fsyntax-only`; that is
+   a syntax gate, not a build of the real APK, and the preloader stubs
+   are approximations.
+4. **No seed is displayed without a source.** If the setter never
+   fires, the HUD still says `unavailable` and lists all 8 windows —
+   nothing is invented (SPEC §4).
+5. **The legacy legs stay live** as cross-checks; on a server the
+   packet leg will keep reporting `got 0`, which is expected and is
+   now labelled legacy in the source.
+
+## Decision rules for the re-test (recorded before the run)
+
+- setter live + seed shown → server path CLOSED.
+- `armed, no registration yet` → hook installed, another registration
+  point exists; next probe is the 13 other callers (F-086).
+- `anchor mismatch` → image differs from the offsets' image; the
+  refuse-to-patch guard did its job.
+- setter fires with a value that is not the server seed → the
+  single-registration premise is falsified; hunt moves to the other
+  callers.
+
+## Diff (unstaged)
+
+```diff
+diff --git a/docs/EVIDENCE_LOG.md b/docs/EVIDENCE_LOG.md
+index 0f34427..2c277ee 100644
+--- a/docs/EVIDENCE_LOG.md
++++ b/docs/EVIDENCE_LOG.md
+@@ -12,8 +12,8 @@ Classifications: CONFIRMED / INFERRED / HYPOTHESIS / UNKNOWN.
+ | F-005 | BedrockTools offsets/signatures apply to 1.26.62 | UNKNOWN (treated as inapplicable) | BedrockTools targets `1.26.6X.X`; no per-build equivalence evidence | Zaphkiel re-verification per value, if ever reused |
+ | F-006 | Where the world seed lives in 1.26.62 (LevelData vs LevelSettings vs StartGamePacket vs other) and how to read it | UNKNOWN | No binary evidence yet | ST-001 (+ follow-ups): RTTI/vtable/struct findings on 1.26.62 `libminecraftpe.so` |
+ | F-007 | Seed-Taker behavioral spec (Absolute Seed Taker: local + server recovery, spoof separation, confidence reporting) | CONFIRMED (as requirements) | User-stated 2026-11-14, recorded in `docs/SPEC.md` | N/A; feasibility per item is evidence-gated (H-001..H-003) |
+-| H-001 | SP world seed is readable from client-side level objects (Level/LevelData/LevelSettings) | INFERRED (promoted ST-008: SP+MP converge on the same ctor → `+0x3b0`, readable via slot-8 getter; value-meaning pending runtime validation) | SP client owns the world; BedrockTools hooks `Level::initialize` which receives a `levelSettings` argument (`src/modules/hud/debugmenu.cpp`, `s_origLevelInitialize`) | ST-001/002: names found. ST-003: vtable mapped (F-024); `+0x3b0` int32 getter (slot 8) is the only int-shaped accessor — seed candidacy HYPOTHESIS. ST-004: write-external-only, no ctor writes (F-032). ST-005: single virtual caller fn `0x68b3158` (F-036). ST-006: reader found (`0x68b350c`→`0xe804a08`), setter writer still unknown (F-041/F-042). ST-007: `+0x3b0` IS ctor-written (ctor `0x11146b24` ← getter `0x10b1da08`); object = LevelData (F-045). ST-008: chain closed — `+0x3b0` = packet+0xA8 (F-048/F-049); seed-ness INFERRED-strong (F-051). Next: implementation approved 2026-11-14, initial impl merged (PRs #1+#2); field: SP seed 64-bit (F-058), pair dead (F-063), dense-run refined (F-069); scan verdict 0/7 (F-076); memeditor hunt retired after 3 attempts (F-081); producer-side exhausted by ctor census (F-082); ST-011 T3-string complete: setter 0x111463bc + container loop (F-084); ST-012 COMPLETE: setter = type-7 rule register (F-086), src+0x0 = seed, window-8 implemented uncommitted (F-087) |
+-| H-002 | Server-provided seed reaches the client in the Start Game packet (`Seed` / `LevelSettings`) | INFERRED | Public protocol docs: Start Game (0x0B) carries `Seed` (SignedVarInt, "seed used to generate the world", 32-bit) and `Settings: LevelSettings` — wiki.vg Bedrock Protocol, minecraft.wiki Bedrock_Edition_protocol/Packets, Mojang bedrock-protocol-docs changelog (serialization drifts per version). ST-003: vtable mapped (F-023); read path is cereal-driven; payload base `+0x30`, getId `0x0B` CONFIRMED (F-026/F-027) | ST-004: dispatcher slot[2] → handler slot 37 (F-028). ST-005: slot 37 = StartGame handle; packet-field map, no by-value seed read (F-033/F-034); two LevelData-region callees (F-035). ST-006: consumers resolved — `+0x4e0`=16B blob (dead end), `+0x4c8`→ctor `0x11146b24`, `+0x50c`=u16 (dead end) (F-037/F-039/F-040). ST-007: MP chain reconstructed — payload → `0x9b56e60` → src → ctor → LevelData.+0x3b0 (F-047). ST-008: mechanism COMPLETE — packet+0xA8 → src+0x78 → LevelData.+0x3b0 traced (F-048/F-049); meaning INFERRED-strong (F-051). Old ST-009 (sig-gen) cancelled (backup only, F-052). Level::initialize hunt RETIRED before issue (ctor-hook vehicle supersedes, F-067). ST-009 (pair hunt) COMPLETE: pair DEAD (F-063/F-064); `13LevelSettings` confirmed (F-065). ST-010 COMPLETE (F-069..F-072). CRASH on first field run: getter-hook patch killed neighbor fn (F-073); fix = ctor-hook ASM wrapper (F-074, implemented, MERGED PR #3). FIELD-001: wrapper survived, verdict 0/7 (F-075/F-076); memeditor hunt retired (F-081); producer-side exhausted (F-082); ST-011 T3-string complete (F-084/F-085): NBT→setter→container→NBT loop; ST-012 COMPLETE (F-086/F-087): container home mapped, src+0x0 read designed + implemented (window-8, uncommitted, PR #4 next). |
++| H-001 | SP world seed is readable from client-side level objects (Level/LevelData/LevelSettings) | INFERRED (promoted ST-008: SP+MP converge on the same ctor → `+0x3b0`, readable via slot-8 getter; value-meaning pending runtime validation) | SP client owns the world; BedrockTools hooks `Level::initialize` which receives a `levelSettings` argument (`src/modules/hud/debugmenu.cpp`, `s_origLevelInitialize`) | ST-001/002: names found. ST-003: vtable mapped (F-024); `+0x3b0` int32 getter (slot 8) is the only int-shaped accessor — seed candidacy HYPOTHESIS. ST-004: write-external-only, no ctor writes (F-032). ST-005: single virtual caller fn `0x68b3158` (F-036). ST-006: reader found (`0x68b350c`→`0xe804a08`), setter writer still unknown (F-041/F-042). ST-007: `+0x3b0` IS ctor-written (ctor `0x11146b24` ← getter `0x10b1da08`); object = LevelData (F-045). ST-008: chain closed — `+0x3b0` = packet+0xA8 (F-048/F-049); seed-ness INFERRED-strong (F-051). Next: implementation approved 2026-11-14, initial impl merged (PRs #1+#2); field: SP seed 64-bit (F-058), pair dead (F-063), dense-run refined (F-069); scan verdict 0/7 (F-076); memeditor hunt retired after 3 attempts (F-081); producer-side exhausted by ctor census (F-082); ST-011 T3-string complete: setter 0x111463bc + container loop (F-084); ST-012 COMPLETE: setter = type-7 rule register (F-086), src+0x0 = seed, window-8 implemented uncommitted (F-087); FIELD server verdict (F-088): src+0x0 correct on SP+LAN, server path 0/8 ⇒ setter hook added as primary (authoritative u64 register point) |
++| H-002 | Server-provided seed reaches the client in the Start Game packet (`Seed` / `LevelSettings`) | INFERRED | Public protocol docs: Start Game (0x0B) carries `Seed` (SignedVarInt, "seed used to generate the world", 32-bit) and `Settings: LevelSettings` — wiki.vg Bedrock Protocol, minecraft.wiki Bedrock_Edition_protocol/Packets, Mojang bedrock-protocol-docs changelog (serialization drifts per version). ST-003: vtable mapped (F-023); read path is cereal-driven; payload base `+0x30`, getId `0x0B` CONFIRMED (F-026/F-027) | ST-004: dispatcher slot[2] → handler slot 37 (F-028). ST-005: slot 37 = StartGame handle; packet-field map, no by-value seed read (F-033/F-034); two LevelData-region callees (F-035). ST-006: consumers resolved — `+0x4e0`=16B blob (dead end), `+0x4c8`→ctor `0x11146b24`, `+0x50c`=u16 (dead end) (F-037/F-039/F-040). ST-007: MP chain reconstructed — payload → `0x9b56e60` → src → ctor → LevelData.+0x3b0 (F-047). ST-008: mechanism COMPLETE — packet+0xA8 → src+0x78 → LevelData.+0x3b0 traced (F-048/F-049); meaning INFERRED-strong (F-051). Old ST-009 (sig-gen) cancelled (backup only, F-052). Level::initialize hunt RETIRED before issue (ctor-hook vehicle supersedes, F-067). ST-009 (pair hunt) COMPLETE: pair DEAD (F-063/F-064); `13LevelSettings` confirmed (F-065). ST-010 COMPLETE (F-069..F-072). CRASH on first field run: getter-hook patch killed neighbor fn (F-073); fix = ctor-hook ASM wrapper (F-074, implemented, MERGED PR #3). FIELD-001: wrapper survived, verdict 0/7 (F-075/F-076); memeditor hunt retired (F-081); producer-side exhausted (F-082); ST-011 T3-string complete (F-084/F-085): NBT→setter→container→NBT loop; ST-012 COMPLETE (F-086/F-087): container home mapped, src+0x0 read designed + implemented (window-8, uncommitted, PR #4 next).; SERVER verdict (F-088): legacy int32 packet leg is 0 on Survival Server — the u64 seed rides the setter 0x111463bc, so the setter hook is now primary |
+ | H-003 | When a server spoofs the client-visible seed (e.g. `0`), the true world-generation seed may never reach the client (server-authoritative worldgen) | HYPOTHESIS | Central research question per SPEC; consistent with server-sent chunks, but unproven for 1.26.62 | Trace seed-derived client data (biome/chunk/feature RNG inputs) or prove absence; may conclude UNAVAILABLE for MP-spoofed |
+ | F-008 | Initial implementation builds (`xmake`, NDK r28c, arm64) + `SeedTaker.levipack` packages | CONFIRMED | CI `build` green 2026-11-14 (PR #1, commit `818b94c`): compile + link + levipack + artifact upload. Two failures fixed en route, see F-057 | On-device runtime validation (IMPLEMENTATION_PLAN.md protocol) |
+ | F-009 | BedrockTools packet-interception pattern (hook packet `handle`/`read` via signature or RTTI+vtable slot) | CONFIRMED | `Signatures.cpp`: `PlayerListPacketRead` via RTTI `16PlayerListPacket` slot 17; `ResourcePacksInfoPacketHandle`/`ResourcePackStackPacketHandle` via patterns; consumed in `chatheads.cpp`, `forceglobalrp.cpp` | N/A (pattern reference for ST-002 capture design, if a seed packet path is confirmed) |
+@@ -175,9 +175,10 @@ Classifications: CONFIRMED / INFERRED / HYPOTHESIS / UNKNOWN.
+ | F-082 | CTOR 64-BIT CENSUS (ST-007 re-grep, no new run): the LevelData ctor copies NOTHING 64-bit from src — all ~25 `bl 0x10b1dxx` getters run with x0=x21=x1 (x21=x1 confirmed ST-007:2079 ⇒ the runtime snapshot arg was CORRECT, FIELD-001 0/7 stands) and return ≤32-bit (stored via str w/strb/strh, e.g. the +0x3a0..+0x3b0 run) or pointers (dbc4/da58/da60 returns passed as call args; daf8 → retained shared_ptr pair @this+0x270/0x278 + u16 @0x268). The three `str x` to `this`: +0x570 = fresh owned sub-object (new(0x28) + vtable @0x1388c3f0), +0x510 = refcount decrement, +0x270/8 = shared_ptr retain. Remaining 64-bit traffic = string/vector member copies + hash-table ops. PRODUCER-SIDE (ctor/src channel) EXHAUSTED for the 64-bit seed ⇒ pivot to consumer-side (copy-seed UI F-015, worldgen LevelSeed64 F-020, RandomSeed strings). Residual: alternate-ctor-overload check inconclusive (ST-004 format exposed no ctor entries to grep) | ST-007 re-grep | ST-011 PARTIAL (F-083): T1 misfired (syntax), T3 negative (no RTTI); retry issued |
+ | F-083 | ST-011 RUN 1 (PARTIAL, 2026-11-14): T1 misfired — bare `STRUCT SeedHandler` routed to the STRING path (`STRING: ...` → NOT FOUND), proving commands need angle brackets (all confirmed commands are lowercase+`<>`: fullvf/hier/fn/findclass/xref_tree) — retry as `struct<SeedHandler>`; the accident usefully PROVES a raw string-search path exists (banner + NOT FOUND format now known). T3 (user file `T2`) ran correctly: `findclass<RandomSeed>` → no typeinfo ⇒ RandomSeed is NOT an RTTI class (NBT key string only) — backup front pivots to raw string search `RandomSeed` + xref on the .rodata hit. Retrospective: lib loads 342231392 B ≈ 326 MiB ≈ memeditor attempt-1's 323 MiB ⇒ attempt-1 AOB was .so-only, CONFIRMED (F-078 suspicion proven post-hoc). T2-conditional still blocked on T1 | evidence/ST-011/zaphkiel_out_T1_struct-misfire.txt + zaphkiel_out_T3-findclass-RandomSeed.txt | T3-string COMPLETE (F-084/F-085); setter/getter dumps + struct → ST-012 |
+ | F-084 | ST-011 T3-STRING COMPLETE (6764 lines): `RandomSeed` @rodata va 0x258f803, exactly 2 ADRP+ADD xrefs. LOAD fn 0x11130798 (NBT→this): StorageVersion(int)→this+0x298; RandomSeed via 64-bit NBT get 0x11ba2700→x21, StorageVersion≤8 legacy path converts low32 via 0x10b1c888 (sxtw-shaped: 32-bit legacy CONFIRMED in code), then `bl 0x111463bc(this, x21-seed64)`. SAVE fn 0x1114afe4 (this→NBT): RandomSeed ← container lookup 0x1115ca18(this+0x520, fallback this+0x4f8, name#0x8b0) + type==7 → u64 @+0x38 → NBT put 0x11ba1634 (else 0). LevelData identity cross-confirmed (ctor-copy offsets == save-read offsets: +0x378 Difficulty, +0x37c/0x37d). `isRandomSeedAllowed` is a DISTINCT flag key — explicitly NOT the seed. 2 trailing `[live]` xrefs are session VAs (dead on restart, not chased). Seed loop: NBT→0x111463bc→???→container→NBT; 0x111463bc (same TU as the ctor!) is the most seed-adjacent VA owned | evidence/ST-011/zaphkiel_out_T3-string-RandomSeed.txt | P0 COMPLETE (F-086): container-exclusive home, no direct store |
+-| F-086 | ST-012 P0 COMPLETE (fn<0x111463bc>, 432 lines): the setter REGISTERS the u64 seed as a type-7 gamerule — same rule name #0x8b0 + type tag 7 + container this+0x4f8 + registrar 0xd05546c as the save-side read (F-084); stores x1→rule+0x38 with tag handling (existing-7 / empty / other-type paths) then notifies via 0x1114e3e0(this,9). NO direct LevelData member store ⇒ container-EXCLUSIVE home (P0 prediction half-confirmed). Callee 0xd05546c = hash-map insert-or-find (popcount/modulo probe). 14 callers, 1 dumped (0xa1bd1b0: gated setSeed on deref'd obj; F-038 7th instance: `14` vs 13 listed) incl. NBT-load 0x11130800 + ctor 0x111471a8. STALENESS: nil — re-sets idempotent (one world seed per world; new world ⇒ new ctor ⇒ fresh hook read); designed fallback if ever stale: hook the setter (sees every write). Tool quirk: `return_type (guess): unknown (no ret found)` despite a real ret (F-038-family) | evidence/ST-012/zaphkiel_out_P0-setter.txt | Window-8 implemented (F-087) |
+ | F-085 | SETTER-SHARING DEDUCTION: the ctor calls 0x111463bc(this, ab28(src)) (ST-007:2477: mov x0,x21; bl 0x10b0ab28; mov x1,x0; mov x0,x19; bl 0x111463bc) — same callee ⇒ same signature ⇒ ab28 returns u64 (load site passes the full NBT long; the ≤8 sxtw-conversion proves high32 meaningful to 463bc, else pointless) ⇒ 0x10b0ab28 = SRC'S 64-BIT SEED GETTER (offset TBD) and 0x111463bc = THE SEED SETTER. Complete ctor getter-return census (every bl-0x10 site classified): exactly ONE proven 64-bit value channel (ab28→463bc); one unproven shape deferred (da10(src)→0x11147d4c — ST-013 iff needed); all others narrow/discarded/pointer/container-member. Save-side kills direct-member seed homes (saved seed comes ONLY from the container). F-051 (+0x3b0 seed-ness) REFUTED: +0x3b0 is 32-bit something-else. F-082 CORRECTED (scope was 0x10b1dxx-only; 0x10b0a-family escaped the grep) — producer-side REOPENED; FIELD-001 0/7 re-explained (seed at src+OFF2 outside 0x60..0x78, pending P1) | ST-007 re-grep + F-084 | P1 COMPLETE (F-087): src+0x0 = seed; P2 DROPPED (superseded) |
++| F-086 | ST-012 P0 COMPLETE (fn<0x111463bc>, 432 lines): the setter REGISTERS the u64 seed as a type-7 gamerule — same rule name #0x8b0 + type tag 7 + container this+0x4f8 + registrar 0xd05546c as the save-side read (F-084); stores x1→rule+0x38 with tag handling (existing-7 / empty / other-type paths) then notifies via 0x1114e3e0(this,9). NO direct LevelData member store ⇒ container-EXCLUSIVE home (P0 prediction half-confirmed). Callee 0xd05546c = hash-map insert-or-find (popcount/modulo probe). 14 callers, 1 dumped (0xa1bd1b0: gated setSeed on deref'd obj; F-038 7th instance: `14` vs 13 listed) incl. NBT-load 0x11130800 + ctor 0x111471a8. STALENESS: nil — re-sets idempotent (one world seed per world; new world ⇒ new ctor ⇒ fresh hook read); designed fallback if ever stale: hook the setter (sees every write). Tool quirk: `return_type (guess): unknown (no ret found)` despite a real ret (F-038-family) | evidence/ST-012/zaphkiel_out_P0-setter.txt | Window-8 implemented (F-087) |
+ | F-087 | ST-012 P1 COMPLETE (fn<0x10b0ab28>, 281 lines): `ldr x0,[x0]; ret` ⇒ SRC+0x0 = THE U64 SEED (World A CONFIRMED three ways: load-shape + setter-body + save-roundtrip). Dumped caller 0xbf2b1b0 (world-creation serializer) files ab28's return under the literal key `WorldSeed` (+Mode/SaveId/fromTemplate/…; 0x10b1da20 = EducationFeaturesEnabled getter) — seed-ness LITERALLY LABELED. Legacy story closed: packet+0xA8→src+0x78→+0x3b0 = legacy 32-bit slot (0 in SP, F-051 dead); true 64-bit seed rides src+0x0 (SP: disk→src→loopback→ctor; MP: packet-LevelSettings→src→ctor). RUNTIME DESIGN (implemented, uncommitted): window-8 — src+0x0 as window 0 (prediction) + 7 old windows as negative controls; zero plumbing change (all loops count-driven); +0x0-match-with-0/7 = perfect discrimination → Recovered. P2 DROPPED as superseded (on-device u64 verdict dominates static UI corroboration; re-issuable iff validation fails); struct-syntax intel filed: struct<Class><0xOFFSET> | evidence/ST-012/zaphkiel_out_P1-getter.txt | PR #4 (approval-gated) |
++| F-088 | SERVER-SEED VERDICT (device, 2026-11-14) + SETTER-HOOK FIX: src+0x0 is CORRECT on SP and LAN/local-multiplayer (user report: seeds right), but the big Survival Server reports `Seed: unavailable (mismatch: pkt exp -6348884760859271012 got 0; src 0/8)` with src windows `src+0x0=-1, +0x60=1, +0x64/68/6c/70/74/78=0` and `Validate: armed, expected -6348884760859271012 [! outside int32 range: cannot match]`. Diagnosis from code + already-filed statics: the packet leg reads a LEGACY INT32 (StartGamePacket+0xA8, F-058/F-087) which is 0 on a server, and the ctor-entry snapshot sees a placeholder (src+0x0=-1) because on the MP path the server seed is not yet in src when the ctor runs — so neither leg yields the server seed. FIX (implemented): hook the LevelData seed setter 0x111463bc (F-086/F-088 single registration point, u64 in x1, called setter(this, seed)) as a PRE-hook with TWO script-computed `bl` anchors (0x11146414=0x96FC3C16, 0x11146494=0x94001FD3; formula cross-checked against ctor anchor 0x97E75B05) resolved as libraryBase+VA; publish the full int64 through a seqlock (odd=writing; reader retries, bounded) instead of the 32-bit packed atomic; SeedModule makes it PRIMARY (verified src window > setter > legacy packet/object), revalidates on EVERY new sequence so an early placeholder can never latch a stale mismatch, and drops the int32-range caveat (setter/src are full int64, so an out-of-int32 expectation CAN now match). Host syntax gate 12/12 (F-056 discipline). NOT claimed working on-device — the Survival Server re-test is the next run; the packet/object legs stay live as legacy cross-checks | user device report (2026-11-14) + F-058/F-086/F-087 + SeedCapture.cpp/SrcScan.cpp read | Survival Server re-test: seed shown + `Validate` pass on the big server; setter hook must appear as `capture: setter (primary)` in the status line DECISION RULES for the re-test: setter hook live + seed shown = server path CLOSED; "armed, no registration yet" = hook fine, another setter exists (next probe: the 13 other callers, F-086); "anchor mismatch" = the image differs from the offsets' image (refuse-to-patch worked as designed); setter fires but the value is not the server seed = falsifies the single-registration premise (F-086) and sends the hunt to the other 13 callers — recorded now so the result cannot be reinterpreted after the fact. |
+ 
+ ## Implementation
+ 
+@@ -247,4 +248,5 @@ Classifications: CONFIRMED / INFERRED / HYPOTHESIS / UNKNOWN.
+   `zaphkiel_out_T3-findclass-RandomSeed.txt` (user labels T1/T2) +
+   README + `zInput-retry.txt` (`struct<>` + raw string search). Finding F-083. T2 still queued behind T1. T3-string ran 2026-11-14 (6764 lines, filed verbatim): setter 0x111463bc + save/load loop (F-084); setter-sharing ⇒ ab28 = src seed getter, F-082 corrected, F-051 refuted (F-085).
+ - **ST-012** (ISSUED 2026-11-14, awaiting user run): P0 `fn<0x111463bc>` (setter body defines the home) + P1 `fn<0x10b0ab28>` (src seed offset; kill-condition stated) + P2 `struct<SeedHandler>` (UI front re-issue). Input filed at `evidence/ST-012/zInput.txt`. Return `zaphkiel_out-12.txt`. Clean resolution ⇒ runtime read design; ab28-miss ⇒ ST-013 (da10→47d4c + lookup identity) — not needed: World A confirmed.
+-- **ST-012** (COMPLETE 2026-11-14): P0 setter = type-7 gamerule register, container-exclusive (F-086); P1 ab28 = `ldr x0,[x0]` ⇒ src+0x0 = seed, `WorldSeed`-labeled (F-087); P2 dropped (superseded; struct-syntax intel filed). Evidence: `evidence/ST-012/` (P0/P1 verbatim + README + zInput). Window-8 implemented uncommitted; PR #4 next (approval-gated).
++- **ST-012** (COMPLETE 2026-11-14): P0 setter = type-7 gamerule register, container-exclusive (F-086); P1 ab28 = `ldr x0,[x0]` ⇒ src+0x0 = seed, `WorldSeed`-labeled (F-087); P2 dropped (superseded; struct-syntax intel filed). Evidence: `evidence/ST-012/` (P0/P1 verbatim + README + zInput). Window-8 committed in PR #4.
++- **SERVER-001** (F-088, device report 2026-11-14): the window-8 build was run on three paths. Local world + local multiplayer (friend's world, LAN) report the CORRECT seed via src+0x0 — F-087 confirmed **on-device**, the primary acceptance criterion for local play. The big Survival Server reports no seed (`mismatch: pkt exp -6348884760859271012 got 0; src 0/8`; windows `+0x0=-1, +0x60=1, +0x64..+0x78=0`; `Validate: [! outside int32 range: cannot match]`). Cause, from code + statics already filed: the packet leg is the legacy int32 field (`StartGamePacket+0xA8`, 0 on a server — F-058/F-087), and the ctor-entry snapshot catches a placeholder (`src+0x0=-1`) because on the MP path the server seed lands in src AFTER the ctor runs. Fix = capture the seed where it is registered, not where it is stored: hook the setter `0x111463bc` (F-086's single registration point, u64 in x1) and publish it as a full int64 (seqlock), making it the primary source and revalidating on every new sequence so the early placeholder can never latch. Implemented in this PR; the Survival Server re-test is the pending on-device step (no claim made).
+diff --git a/docs/IMPLEMENTATION_PLAN.md b/docs/IMPLEMENTATION_PLAN.md
+index aa45f95..277d18b 100644
+--- a/docs/IMPLEMENTATION_PLAN.md
++++ b/docs/IMPLEMENTATION_PLAN.md
+@@ -162,4 +162,48 @@ consts-only change (`Seed.hpp` + `SrcScan.hpp` comments; all loops
+ already count-driven; hook untouched). On-device verdict: +0x0
+ match with 0/7 controls = Recovered (perfect discrimination).
+ Staleness: nil by idempotence (fallback: hook the setter).
+-Next: PR #4 (commit + push + CI + device verdict) — approval-gated.
++Committed in PR #4; on-device result: local + LAN CORRECT (F-088).
++
++## Setter hook: the server path (F-088, implemented — uncommitted)
++
++Window-8 fixed local play and left the big Survival Server with no
++seed: `pkt ... got 0; src 0/8`, windows `+0x0=-1, +0x60=1,
+++0x64..+0x78=0`. Both failures are structural, not tuning:
++
++- the packet leg reads the LEGACY INT32 `StartGamePacket+0xA8`
++  (F-058/F-087) — an old 32-bit field, always 0 on a server;
++- the src snapshot is taken at ctor ENTRY, and on the MP path the
++  server seed is written into src only AFTER the ctor runs, so the
++  snapshot sees a placeholder (`-1`).
++
++So the seed must be captured where it is REGISTERED, not where it is
++stored. `LevelData`'s seed setter `0x111463bc` is that point (F-086):
++`setter(this, seed)` with the u64 in x1, called by NBT load, the ctor,
++and the network path alike. DESIGN:
++
++- **Hook**: detour at `libraryBase("libminecraftpe.so") +
++  0x111463bc`; install is gated on TWO `bl` words inside the function
++  (`0x11146414`=`0x96FC3C16`, `0x11146494`=`0x94001FD3`, script-
++  computed and cross-checked against the ctor anchor `0x97E75B05`).
++  Anchor mismatch ⇒ refuse to patch (fail-safe, no wrong-function
++  patch). Prologue is a normal `sub sp,#0x80` frame — safely hookable
++  (the ≤16-byte-getter rule of F-073 does not apply).
++- **Publish**: full `int64` through a seqlock (odd sequence = write in
++  flight; reader retries, bounded) — the 32-bit packed atomic of the
++  legacy sources cannot carry the seed.
++- **Priority**: verified src window > setter > legacy packet/object.
++  The setter is authoritative and shows a value whenever it has fired;
++  confidence is Recovered once validated, Inferred otherwise (the seed
++  is still the seed — it is never withheld for lack of a check).
++- **Re-validation**: compared on EVERY new sequence (last call wins),
++  so a placeholder registered early on a network load can never latch
++  a stale mismatch (the ctor may register before the server value).
++- **Range guard removed**: the `[! outside int32 range: cannot match]`
++  caveat is obsolete — setter and src windows carry full int64, so an
++  out-of-int32 expectation can and must be able to match.
++- **Unchanged**: legacy packet/object legs stay as cross-checks; the
++  src windows stay as negative controls; nothing logs or allocates in
++  any detour.
++
++Host syntax gate 12/12. Pending: Survival Server re-test on-device
++(the setter must report as `capture: setter (primary)`), then PR.
+diff --git a/include/seedtaker/sdk/offsets/Seed.hpp b/include/seedtaker/sdk/offsets/Seed.hpp
+index 968b8f9..b1d2334 100644
+--- a/include/seedtaker/sdk/offsets/Seed.hpp
++++ b/include/seedtaker/sdk/offsets/Seed.hpp
+@@ -48,10 +48,22 @@ inline constexpr std::uintptr_t SrcGetterFileVA = 0x10b1da08;
+ // Reference only — the seed is read via the ctor-hook window, not a call.
+ inline constexpr std::uintptr_t SrcSeedGetterFileVA = 0x10b0ab28;
+ // LevelData seed setter, file VA (F-086): registers the u64 seed as a
+-// type-7 gamerule in this+0x4f8 (14 callers: NBT load, ctor, +12). The
+-// ctor hook reads the seed BEFORE any re-set (re-sets are idempotent —
+-// no staleness, F-086). Reference only (designed fallback: hook-if-stale).
++// type-7 gamerule in this+0x4f8 (14 callers: NBT load, ctor, +12). This is
++// the single registration point for the seed — every load path (SP disk,
++// LAN, Survival Server packet) funnels through it, so hooking it captures
++// the authoritative 64-bit seed path-agnostically (F-088). Standard
++// prologue (~0x110 bytes) — safely hookable (unlike the 8-byte getters).
++// Called as setter(this, seed); the seed arrives in x1 (AAPCS64).
+ inline constexpr std::uintptr_t LevelDataSeedSetterFileVA = 0x111463bc;
++// Pre-hook anchors for the setter (ST-012 P0): two `bl` words inside the
++// setter, script-computed from the disassembly (the bl-encoding formula
++// was verified by reproducing the known ctor anchor 0x97E75B05).
++// 0x11146414: `bl 0xd05546c` (registrar) -> 0x96FC3C16;
++// 0x11146494: `bl 0x1114e3e0` (notify) -> 0x94001FD3.
++inline constexpr std::uintptr_t LevelDataSeedSetterBlSite1 = 0x11146414;
++inline constexpr std::uint32_t LevelDataSeedSetterBlWord1 = 0x96FC3C16u;
++inline constexpr std::uintptr_t LevelDataSeedSetterBlSite2 = 0x11146494;
++inline constexpr std::uint32_t LevelDataSeedSetterBlWord2 = 0x94001FD3u;
+ // LevelData ctor, file VA (F-045): the SrcScan hook target (F-074).
+ // ~4KB with a straight-line 16B prologue — ample patch room,
+ // trampoline-safe. Live = libraryBase("libminecraftpe.so") + VA (ET_DYN).
+diff --git a/src/modules/seed/SeedModule.cpp b/src/modules/seed/SeedModule.cpp
+index 612c858..ddbc153 100644
+--- a/src/modules/seed/SeedModule.cpp
++++ b/src/modules/seed/SeedModule.cpp
+@@ -67,6 +67,35 @@ void SeedModule::drainCapture() {
+         }
+     }
+ 
++    // Setter source (F-088): the authoritative u64 seed. Unlike the src
++    // windows it provides a value whenever the setter has fired, with or
++    // without validation — so the seed displays on every load path.
++    // Re-compared on EVERY new sequence (last call wins): on a network
++    // load a placeholder can register before the server's real seed, so a
++    // stale mismatch must never latch.
++    const auto setter = capture::SeedCapture::setterReading();
++    if (setter.sequence != 0 && setter.sequence != m_setter.sequence) {
++        m_setter.sequence = setter.sequence;
++        m_setter.value = setter.seed;
++        // Frame thread, one line per registration (world load only): the
++        // device log then shows how many times the setter fired and with
++        // which values, which is exactly what decides the server question.
++        pl::log::Logger::getOrCreate("SeedTaker")
++            .info("Seed setter #{} registered {}", setter.sequence, setter.seed);
++        if (m_validationArmed && m_hasExpectedSeed) {
++            if (setter.seed == m_expectedSeed) {
++                m_setter.verified = true;
++                m_setter.failed = false;
++                m_validationPassed = true;
++            } else {
++                m_setter.verified = false;
++                m_setter.failed = true;
++                pl::log::Logger::getOrCreate("SeedTaker")
++                    .warn("Seed validation MISMATCH (setter): expected {}, got {}", m_expectedSeed, setter.seed);
++            }
++        }
++    }
++
+     for (std::size_t w = 0; w < sdk::offsets::seed::SrcScanWindowCount; ++w) {
+         const auto snap = capture::SrcScan::windowReading(w);
+         auto& st = m_srcWindows[w];
+@@ -92,10 +121,13 @@ void SeedModule::drainCapture() {
+     }
+ 
+     // Primary: a runtime-verified src window wins outright (only full-int64
+-    // leg); otherwise newest usable packet/object reading. Failed sources
+-    // are excluded; divergences surface at render time, never merged.
++    // leg); otherwise the setter seed (authoritative, F-088); otherwise the
++    // newest usable packet/object reading (legacy int32 cross-checks).
++    // Failed sources are excluded; divergences surface at render time,
++    // never merged.
+     const bool packetUsable = m_packet.sequence != 0 && !m_packet.failed;
+     const bool objectUsable = m_object.sequence != 0 && !m_object.failed;
++    const bool setterUsable = m_setter.sequence != 0 && !m_setter.failed;
+     std::size_t verifiedSrc = sdk::offsets::seed::SrcScanWindowCount;
+     std::size_t srcLatched = 0;
+     std::size_t srcVerified = 0;
+@@ -110,6 +142,12 @@ void SeedModule::drainCapture() {
+     m_reading.confidence = SeedConfidence::Unavailable;
+     m_reading.source = "none";
+     m_reading.detail = std::string(capture::SeedCapture::status()) + " | " + capture::SrcScan::status();
++    if (capture::SeedCapture::setterHookActive() && m_setter.sequence == 0) {
++        // An armed-but-silent setter is a distinct (and actionable) state:
++        // the hook patched fine but no world-load registration has run yet.
++        // Never let it read as "no hook" on a device report.
++        m_reading.detail += " | setter: armed, no registration yet";
++    }
+     const SourceState* primary = nullptr;
+     const char* primarySource = nullptr;
+     if (verifiedSrc != sdk::offsets::seed::SrcScanWindowCount) {
+@@ -120,6 +158,15 @@ void SeedModule::drainCapture() {
+         m_reading.source = label;
+         m_reading.confidence = SeedConfidence::Recovered;
+         m_reading.detail = "runtime-validated";
++    } else if (setterUsable) {
++        // Authoritative seed from the setter (F-088): the single
++        // registration point, so this is the seed on every load path
++        // (SP disk, LAN, Survival Server). Recovered when validated,
++        // Inferred (but still primary) when not.
++        m_reading.value = m_setter.value;
++        m_reading.source = "level-setter:seed register";
++        m_reading.confidence = m_setter.verified ? SeedConfidence::Recovered : SeedConfidence::Inferred;
++        m_reading.detail = m_setter.verified ? "runtime-validated" : "authoritative seed (F-088)";
+     } else if (packetUsable && (!objectUsable || m_packet.sequence >= m_object.sequence)) {
+         primary = &m_packet;
+         primarySource = "server-packet:StartGamePacket+0xA8";
+@@ -138,19 +185,28 @@ void SeedModule::drainCapture() {
+             m_reading.detail = "unconfirmed field (F-051)";
+         }
+     } else if (m_reading.confidence == SeedConfidence::Unavailable
+-               && (m_packet.failed || m_object.failed || srcLatched > srcVerified)) {
++               && (m_packet.failed || m_object.failed || m_setter.failed || srcLatched > srcVerified)) {
+         std::string detail = "mismatch:";
++        bool first = true;
+         if (m_packet.failed) {
+             detail += " pkt exp " + std::to_string(m_packet.mismatchExpected)
+                 + " got " + std::to_string(m_packet.mismatchGot);
++            first = false;
+         }
+         if (m_object.failed) {
+-            if (m_packet.failed) detail += ";";
++            if (!first) detail += ";";
+             detail += " obj exp " + std::to_string(m_object.mismatchExpected)
+                 + " got " + std::to_string(m_object.mismatchGot);
++            first = false;
++        }
++        if (m_setter.failed) {
++            if (!first) detail += ";";
++            detail += " setter exp " + std::to_string(m_expectedSeed)
++                + " got " + std::to_string(m_setter.value);
++            first = false;
+         }
+         if (srcLatched > 0) {
+-            if (m_packet.failed || m_object.failed) detail += ";";
++            if (!first) detail += ";";
+             detail += " src " + std::to_string(srcVerified) + "/" + std::to_string(srcLatched);
+         }
+         m_reading.detail = detail;
+@@ -235,13 +291,10 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
+         validation.text = m_hasExpectedSeed
+             ? "Validate: armed, expected " + std::to_string(m_expectedSeed)
+             : "Validate: armed, no expected seed set";
+-        if (m_hasExpectedSeed
+-            && (m_expectedSeed < INT32_MIN || m_expectedSeed > INT32_MAX)) {
+-            // Both capture paths read int32 fields: an out-of-range
+-            // expectation can never match, so say so instead of letting
+-            // the user stare at a guaranteed mismatch.
+-            validation.text += " [! outside int32 range: cannot match]";
+-        }
++        // No int32-range caveat any more (F-088): the setter and the src
++        // windows carry the seed as a full int64, so an expectation outside
++        // int32 CAN match. Only the legacy packet/object cross-checks are
++        // int32, and they no longer decide the verdict.
+         commands.push_back(validation);
+         y += m_textSize + 8.0f;
+     }
+@@ -250,7 +303,9 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
+ void SeedModule::onFrame() {
+     if (!enabled || !m_showHud) return;
+     // Install is idempotent: retry until live (covers enable-before-load).
+-    if (!capture::SeedCapture::packetHookActive()) capture::SeedCapture::install();
++    if (!capture::SeedCapture::packetHookActive() || !capture::SeedCapture::setterHookActive()) {
++        capture::SeedCapture::install();
++    }
+     if (!capture::SrcScan::active()) capture::SrcScan::install();
+     drainCapture();
+     std::vector<DrawCommand> commands;
+@@ -292,6 +347,8 @@ void SeedModule::loadConfig(const nlohmann::json& j) {
+             m_packet.failed = false;
+             m_object.verified = false;
+             m_object.failed = false;
++            m_setter.verified = false;
++            m_setter.failed = false;
+             for (auto& st : m_srcWindows) {
+                 st.verified = false;
+                 st.failed = false;
+diff --git a/src/modules/seed/SeedModule.hpp b/src/modules/seed/SeedModule.hpp
+index 47c055d..bfd5bfe 100644
+--- a/src/modules/seed/SeedModule.hpp
++++ b/src/modules/seed/SeedModule.hpp
+@@ -1,12 +1,12 @@
+ #pragma once
+ 
+-// SeedTaker's feature module. Capture status: the PACKET path is live
+-// (slot-37 hook -> StartGamePacket+0xA8, INFERRED until runtime-validated)
+-// and the SRC-SCAN path is live (getter-hook -> 7 int64 windows over the
+-// src settings cluster, F-071/F-072); the OBJECT path (LevelData.+0x3b0
+-// via Level::initialize) stays prepared-but-disabled as backup (vehicle
+-// retired, F-067). See capture/SeedCapture.hpp, capture/SrcScan.hpp,
+-// docs/IMPLEMENTATION_PLAN.md, and docs/EVIDENCE_LOG.md (F-048..F-072).
++// SeedTaker's feature module. Capture status: the SETTER path is primary
++// (seed-setter detour -> authoritative u64 seed, F-088) and the SRC-SCAN
++// path is live (ctor hook -> 8 int64 windows over src, F-071/F-072/F-087);
++// the PACKET path (StartGamePacket+0xA8, legacy int32) and OBJECT path
++// (LevelData.+0x3b0) are retained as legacy cross-checks only. See
++// capture/SeedCapture.hpp, capture/SrcScan.hpp, docs/IMPLEMENTATION_PLAN.md,
++// and docs/EVIDENCE_LOG.md (F-048..F-088).
+ //
+ // SPEC §4 is enforced in onFrame: no number is rendered while unavailable,
+ // and inferred values always carry an explicit INFERRED marking. Packet and
+@@ -72,6 +72,16 @@ private:
+     SeedReading m_reading;
+     SourceState m_packet;
+     SourceState m_object;
++    // Setter source (F-088): the authoritative u64 seed captured from the
++    // LevelData seed-setter detour. Revalidated on every new registration
++    // (last call wins), unlike the one-shot src windows.
++    struct SetterState {
++        std::uint64_t sequence = 0;
++        std::int64_t value = 0;
++        bool verified = false;
++        bool failed = false;
++    };
++    SetterState m_setter;
+     // Src-scan windows (F-071/F-072): one state per int64 snapshot window.
+     // Each window one-shots independently against the expected seed; a
+     // full-int64 match is runtime validation (Recovered).
+diff --git a/src/modules/seed/capture/SeedCapture.cpp b/src/modules/seed/capture/SeedCapture.cpp
+index 02e683b..1bbfc6a 100644
+--- a/src/modules/seed/capture/SeedCapture.cpp
++++ b/src/modules/seed/capture/SeedCapture.cpp
+@@ -7,6 +7,7 @@
+ #include <seedtaker/sdk/offsets/Seed.hpp>
+ #include <atomic>
+ #include <cstdint>
++#include <cstring>
+ #include <mutex>
+ #include <string> // Pointer types only; the detour never dereferences these.
+ 
+@@ -21,6 +22,24 @@ std::atomic<const char*> statusText{"capture: idle"};
+ std::mutex installMutex;
+ seedtaker::hooks::Handle packetHook = nullptr;
+ seedtaker::hooks::Handle levelInitHook = nullptr;
++seedtaker::hooks::Handle setterHook = nullptr;
++
++// Setter source (F-088): seqlock. setterSeq is odd while a write is in
++// flight, so readers retry instead of observing a torn 64-bit value.
++std::atomic<std::uint64_t> setterSeq{0};
++std::atomic<std::int64_t> setterValue{0};
++
++// Why the setter hook is (or is not) live — surfaced in status() so a
++// device report distinguishes "not attempted" from "anchor mismatch"
++// (the latter means the image is not the one the offsets came from).
++enum SetterHookState : int {
++    SetterHookNotAttempted = 0,
++    SetterHookUnresolved,   // library base not found.
++    SetterHookAnchorBad,    // bl anchors do not match: wrong image, refused.
++    SetterHookInstallFail,  // anchors fine, hooks::install refused.
++    SetterHookLive,
++};
++std::atomic<int> setterState{SetterHookNotAttempted};
+ 
+ // handle(NetworkIdentifier const&, StartGamePacket const&) — x0/x1/x2 per
+ // the dispatcher tail-call (F-028). Return-type assumption (F-055): the
+@@ -42,6 +61,14 @@ using LevelInitialize_t = bool (*)(void* _this,
+                                    void* biomeOptHi);
+ LevelInitialize_t originalLevelInit = nullptr;
+ 
++// LevelData seed setter (F-086): registers the u64 seed as a type-7
++// gamerule. Called as setter(this, seed) — the seed arrives in x1
++// (AAPCS64, confirmed by the ctor's setter(this, ab28(src)) call site).
++// Return-type assumption (F-055): the original call is the detour's LAST
++// statement so any result register flows through untouched regardless.
++using LevelDataSeedSetter_t = void (*)(void* _this, std::int64_t seed);
++LevelDataSeedSetter_t originalSetter = nullptr;
++
+ void publishPacket(std::int32_t seed) {
+     const auto previous = packetPacked.load(std::memory_order_relaxed);
+     const auto sequence = (previous >> 32) + 1;
+@@ -54,6 +81,16 @@ void publishObject(std::int32_t seed) {
+     objectPacked.store((sequence << 32) | static_cast<std::uint32_t>(seed), std::memory_order_release);
+ }
+ 
++// Seqlock publish (F-088): odd sequence = write in flight. Release stores
++// so the value is visible before the settle. No allocation, no locks.
++void publishSetter(std::int64_t seed) {
++    const auto begin = setterSeq.load(std::memory_order_relaxed);
++    setterSeq.store(begin + 1, std::memory_order_relaxed);
++    std::atomic_thread_fence(std::memory_order_release);
++    setterValue.store(seed, std::memory_order_relaxed);
++    setterSeq.store(begin + 2, std::memory_order_release);
++}
++
+ void startGameHandleDetour(void* handler, const void* networkId, const void* packet) {
+     if (packet && originalHandle) {
+         // Self-gate: slot 37 is trusted for StartGame only (F-027/F-055).
+@@ -88,7 +125,81 @@ bool levelInitializeDetour(void* _this,
+     return false;
+ }
+ 
++// The seed setter is the single registration point for the world seed
++// (F-086): every load path — SP disk, LAN, Survival Server packet —
++// funnels the u64 seed through it. Capturing x1 here yields the
++// authoritative seed regardless of how the world was loaded (F-088).
++// The setter fires only when a seed is registered (world load), never
++// per-frame, so the detour cost is negligible. Last call wins: on a
++// network load the ctor can register a placeholder before the server's
++// real seed is applied, and the later (real) registration overwrites it
++// — SeedModule revalidates on every new sequence so a corrected value is
++// never stuck behind a stale mismatch.
++void setterDetour(void* _this, std::int64_t seed) {
++    publishSetter(seed);
++    if (originalSetter) originalSetter(_this, seed);
++}
++
++// Install the setter hook (F-088). The target is resolved by sliding the
++// file VA with the library base (ET_DYN) and then verifying TWO `bl`
++// words inside the function before patching: the anchor formula was
++// script-computed and cross-checked against the known ctor anchor
++// (0x97E75B05), so a mismatch means the image is not the one the offsets
++// were derived from — refuse rather than patch the wrong function.
++bool installSetterHook() {
++    // Terminal states stop the per-frame retry loop dead: an anchor
++    // mismatch or an install refusal is deterministic, and re-resolving
++    // the library every frame is pure waste. Only "not yet attempted" and
++    // "library not loaded" retry.
++    const auto state = setterState.load(std::memory_order_acquire);
++    if (state == SetterHookAnchorBad || state == SetterHookInstallFail) return false;
++    const auto base = libraryBase("libminecraftpe.so");
++    if (!base) {
++        setterState.store(SetterHookUnresolved, std::memory_order_release);
++        return false;
++    }
++    const auto target = base + sdk::offsets::seed::LevelDataSeedSetterFileVA;
++    std::uint32_t anchor1 = 0;
++    std::uint32_t anchor2 = 0;
++    std::memcpy(&anchor1,
++                reinterpret_cast<const void*>(base + sdk::offsets::seed::LevelDataSeedSetterBlSite1),
++                sizeof(anchor1));
++    std::memcpy(&anchor2,
++                reinterpret_cast<const void*>(base + sdk::offsets::seed::LevelDataSeedSetterBlSite2),
++                sizeof(anchor2));
++    if (anchor1 != sdk::offsets::seed::LevelDataSeedSetterBlWord1
++        || anchor2 != sdk::offsets::seed::LevelDataSeedSetterBlWord2) {
++        setterState.store(SetterHookAnchorBad, std::memory_order_release);
++        return false;
++    }
++    setterHook = seedtaker::hooks::install(reinterpret_cast<void*>(target),
++                                           reinterpret_cast<void*>(setterDetour),
++                                           reinterpret_cast<void**>(&originalSetter));
++    setterState.store(setterHook ? SetterHookLive : SetterHookInstallFail, std::memory_order_release);
++    return setterHook != nullptr;
++}
++
+ void refreshStatus() {
++    if (setterHook) {
++        statusText.store("capture: setter (primary)", std::memory_order_release);
++        return;
++    }
++    // No setter hook: say WHY before falling back to the legacy wording —
++    // "anchor mismatch" is the failure that must never be mistaken for a
++    // plain miss on-device.
++    switch (setterState.load(std::memory_order_acquire)) {
++    case SetterHookUnresolved:
++        statusText.store("capture: setter unresolved; legacy", std::memory_order_release);
++        return;
++    case SetterHookAnchorBad:
++        statusText.store("capture: setter anchor mismatch; legacy", std::memory_order_release);
++        return;
++    case SetterHookInstallFail:
++        statusText.store("capture: setter install failed; legacy", std::memory_order_release);
++        return;
++    default:
++        break;
++    }
+     if (packetHook && levelInitHook) {
+         statusText.store("capture: packet+object", std::memory_order_release);
+     } else if (packetHook) {
+@@ -121,8 +232,13 @@ bool SeedCapture::install() {
+                                                       reinterpret_cast<void**>(&originalLevelInit));
+         }
+     }
++    // Primary source (F-088). VA-resolved with an anchor gate, so this is
++    // attempted regardless of the signature-based hooks above.
++    if (!setterHook) {
++        installSetterHook();
++    }
+     refreshStatus();
+-    return packetHook != nullptr || levelInitHook != nullptr;
++    return setterHook != nullptr || packetHook != nullptr || levelInitHook != nullptr;
+ }
+ 
+ void SeedCapture::uninstall() {
+@@ -135,6 +251,11 @@ void SeedCapture::uninstall() {
+         seedtaker::hooks::remove(levelInitHook);
+         levelInitHook = nullptr;
+     }
++    if (setterHook) {
++        seedtaker::hooks::remove(setterHook);
++        setterHook = nullptr;
++    }
++    originalSetter = nullptr;
+     statusText.store("capture: idle", std::memory_order_release);
+ }
+ 
+@@ -146,6 +267,10 @@ bool SeedCapture::levelInitHookActive() {
+     return levelInitHook != nullptr;
+ }
+ 
++bool SeedCapture::setterHookActive() {
++    return setterHook != nullptr;
++}
++
+ CaptureReading SeedCapture::packetReading() {
+     const auto packed = packetPacked.load(std::memory_order_acquire);
+     return CaptureReading{packed >> 32, static_cast<std::int32_t>(packed & 0xFFFFFFFFu)};
+@@ -156,6 +281,26 @@ CaptureReading SeedCapture::objectReading() {
+     return CaptureReading{packed >> 32, static_cast<std::int32_t>(packed & 0xFFFFFFFFu)};
+ }
+ 
++// Seqlock read (F-088): retry while a write is in flight. Bounded retries
++// so a pathological writer can never wedge the frame thread; the setter
++// fires only on world load, so one pass is the normal case.
++SetterReading SeedCapture::setterReading() {
++    SetterReading reading;
++    for (int attempt = 0; attempt < 8; ++attempt) {
++        const auto begin = setterSeq.load(std::memory_order_acquire);
++        if (begin & 1u) continue; // write in flight
++        const auto value = setterValue.load(std::memory_order_relaxed);
++        std::atomic_thread_fence(std::memory_order_acquire);
++        const auto end = setterSeq.load(std::memory_order_relaxed);
++        if (begin == end) {
++            reading.sequence = begin;
++            reading.seed = value;
++            return reading;
++        }
++    }
++    return reading; // sequence 0 = no settled reading; caller keeps state.
++}
++
+ std::uint64_t SeedCapture::rejectedPackets() {
+     return rejectedCount.load(std::memory_order_relaxed);
+ }
+diff --git a/src/modules/seed/capture/SeedCapture.hpp b/src/modules/seed/capture/SeedCapture.hpp
+index 36c440d..ec231b4 100644
+--- a/src/modules/seed/capture/SeedCapture.hpp
++++ b/src/modules/seed/capture/SeedCapture.hpp
+@@ -5,17 +5,25 @@
+ // F-055, docs/IMPLEMENTATION_PLAN.md.
+ //
+ // Sources (kept separate for SPEC spoof separation):
++//   setter — LevelData seed setter detour: the u64 seed arrives in x1 and
++//            is published whole (F-086/F-088). This is PRIMARY: the setter
++//            is the single registration point for the seed, so it is the
++//            authoritative value on every load path (SP disk, LAN,
++//            Survival Server packet). Full int64 — no truncation.
+ //   packet — StartGamePacket+0xA8 read in the slot-37 detour, gated on
+-//            getId() == 0x0B (F-027/F-055). INFERRED until validated.
++//            getId() == 0x0B (F-027/F-055). Legacy int32 cross-check only:
++//            it read 0 on the big Survival Server (usr report), the field
++//            is not the 64-bit seed.
+ //   object — LevelData.+0x3b0 read via slot 8 on the levelSettings object
+ //            captured by the Level::initialize detour, gated on the
+ //            vtable-base check (F-055). PENDING ST-009 (no LevelInit
+ //            address yet); the path reports disabled until then.
+ //
+-// Threading: detours run on game threads and publish through a single
+-// packed atomic per source (sequence high 32, seed low 32) — lock-free and
+-// tear-free. SeedModule (frame thread) drains by sequence number. The
+-// detours allocate nothing, lock nothing, and log nothing.
++// Threading: detours run on game threads. The legacy sources publish one
++// packed atomic each (sequence high 32, seed low 32); the setter publishes
++// a full int64 through a seqlock, since the seed does not fit in 32 bits.
++// SeedModule (frame thread) drains by sequence number. The detours allocate
++// nothing, lock nothing, and log nothing.
+ 
+ #include <cstdint>
+ 
+@@ -26,6 +34,16 @@ struct CaptureReading {
+     std::int32_t seed = 0;
+ };
+ 
++// Full int64 reading (setter source, F-088): unlike CaptureReading the
++// seed is not truncated to 32 bits, so out-of-int32-range seeds are
++// representable. sequence/value are published through a seqlock
++// (odd = write in progress), so a read that overlaps a write is retried
++// rather than torn.
++struct SetterReading {
++    std::uint64_t sequence = 0; // 1,3,5... = write in flight; even = settled.
++    std::int64_t seed = 0;
++};
++
+ class SeedCapture {
+ public:
+     // Idempotent. Returns true when at least one hook is active.
+@@ -36,8 +54,10 @@ public:
+ 
+     static bool packetHookActive();
+     static bool levelInitHookActive();
++    static bool setterHookActive();
+     static CaptureReading packetReading();
+     static CaptureReading objectReading();
++    static SetterReading setterReading();
+     // Diagnostic counters (monotonic; for HUD detail + validation).
+     static std::uint64_t rejectedPackets();      // slot-37 calls failing the getId gate.
+     static std::uint64_t typeMismatches();       // levelSettings failing the vtable check.
+```

@@ -48,10 +48,22 @@ inline constexpr std::uintptr_t SrcGetterFileVA = 0x10b1da08;
 // Reference only — the seed is read via the ctor-hook window, not a call.
 inline constexpr std::uintptr_t SrcSeedGetterFileVA = 0x10b0ab28;
 // LevelData seed setter, file VA (F-086): registers the u64 seed as a
-// type-7 gamerule in this+0x4f8 (14 callers: NBT load, ctor, +12). The
-// ctor hook reads the seed BEFORE any re-set (re-sets are idempotent —
-// no staleness, F-086). Reference only (designed fallback: hook-if-stale).
+// type-7 gamerule in this+0x4f8 (14 callers: NBT load, ctor, +12). This is
+// the single registration point for the seed — every load path (SP disk,
+// LAN, Survival Server packet) funnels through it, so hooking it captures
+// the authoritative 64-bit seed path-agnostically (F-088). Standard
+// prologue (~0x110 bytes) — safely hookable (unlike the 8-byte getters).
+// Called as setter(this, seed); the seed arrives in x1 (AAPCS64).
 inline constexpr std::uintptr_t LevelDataSeedSetterFileVA = 0x111463bc;
+// Pre-hook anchors for the setter (ST-012 P0): two `bl` words inside the
+// setter, script-computed from the disassembly (the bl-encoding formula
+// was verified by reproducing the known ctor anchor 0x97E75B05).
+// 0x11146414: `bl 0xd05546c` (registrar) -> 0x96FC3C16;
+// 0x11146494: `bl 0x1114e3e0` (notify) -> 0x94001FD3.
+inline constexpr std::uintptr_t LevelDataSeedSetterBlSite1 = 0x11146414;
+inline constexpr std::uint32_t LevelDataSeedSetterBlWord1 = 0x96FC3C16u;
+inline constexpr std::uintptr_t LevelDataSeedSetterBlSite2 = 0x11146494;
+inline constexpr std::uint32_t LevelDataSeedSetterBlWord2 = 0x94001FD3u;
 // LevelData ctor, file VA (F-045): the SrcScan hook target (F-074).
 // ~4KB with a straight-line 16B prologue — ample patch room,
 // trampoline-safe. Live = libraryBase("libminecraftpe.so") + VA (ET_DYN).

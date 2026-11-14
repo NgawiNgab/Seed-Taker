@@ -67,6 +67,35 @@ void SeedModule::drainCapture() {
         }
     }
 
+    // Setter source (F-088): the authoritative u64 seed. Unlike the src
+    // windows it provides a value whenever the setter has fired, with or
+    // without validation — so the seed displays on every load path.
+    // Re-compared on EVERY new sequence (last call wins): on a network
+    // load a placeholder can register before the server's real seed, so a
+    // stale mismatch must never latch.
+    const auto setter = capture::SeedCapture::setterReading();
+    if (setter.sequence != 0 && setter.sequence != m_setter.sequence) {
+        m_setter.sequence = setter.sequence;
+        m_setter.value = setter.seed;
+        // Frame thread, one line per registration (world load only): the
+        // device log then shows how many times the setter fired and with
+        // which values, which is exactly what decides the server question.
+        pl::log::Logger::getOrCreate("SeedTaker")
+            .info("Seed setter #{} registered {}", setter.sequence, setter.seed);
+        if (m_validationArmed && m_hasExpectedSeed) {
+            if (setter.seed == m_expectedSeed) {
+                m_setter.verified = true;
+                m_setter.failed = false;
+                m_validationPassed = true;
+            } else {
+                m_setter.verified = false;
+                m_setter.failed = true;
+                pl::log::Logger::getOrCreate("SeedTaker")
+                    .warn("Seed validation MISMATCH (setter): expected {}, got {}", m_expectedSeed, setter.seed);
+            }
+        }
+    }
+
     for (std::size_t w = 0; w < sdk::offsets::seed::SrcScanWindowCount; ++w) {
         const auto snap = capture::SrcScan::windowReading(w);
         auto& st = m_srcWindows[w];
@@ -92,10 +121,13 @@ void SeedModule::drainCapture() {
     }
 
     // Primary: a runtime-verified src window wins outright (only full-int64
-    // leg); otherwise newest usable packet/object reading. Failed sources
-    // are excluded; divergences surface at render time, never merged.
+    // leg); otherwise the setter seed (authoritative, F-088); otherwise the
+    // newest usable packet/object reading (legacy int32 cross-checks).
+    // Failed sources are excluded; divergences surface at render time,
+    // never merged.
     const bool packetUsable = m_packet.sequence != 0 && !m_packet.failed;
     const bool objectUsable = m_object.sequence != 0 && !m_object.failed;
+    const bool setterUsable = m_setter.sequence != 0 && !m_setter.failed;
     std::size_t verifiedSrc = sdk::offsets::seed::SrcScanWindowCount;
     std::size_t srcLatched = 0;
     std::size_t srcVerified = 0;
@@ -110,6 +142,12 @@ void SeedModule::drainCapture() {
     m_reading.confidence = SeedConfidence::Unavailable;
     m_reading.source = "none";
     m_reading.detail = std::string(capture::SeedCapture::status()) + " | " + capture::SrcScan::status();
+    if (capture::SeedCapture::setterHookActive() && m_setter.sequence == 0) {
+        // An armed-but-silent setter is a distinct (and actionable) state:
+        // the hook patched fine but no world-load registration has run yet.
+        // Never let it read as "no hook" on a device report.
+        m_reading.detail += " | setter: armed, no registration yet";
+    }
     const SourceState* primary = nullptr;
     const char* primarySource = nullptr;
     if (verifiedSrc != sdk::offsets::seed::SrcScanWindowCount) {
@@ -120,6 +158,15 @@ void SeedModule::drainCapture() {
         m_reading.source = label;
         m_reading.confidence = SeedConfidence::Recovered;
         m_reading.detail = "runtime-validated";
+    } else if (setterUsable) {
+        // Authoritative seed from the setter (F-088): the single
+        // registration point, so this is the seed on every load path
+        // (SP disk, LAN, Survival Server). Recovered when validated,
+        // Inferred (but still primary) when not.
+        m_reading.value = m_setter.value;
+        m_reading.source = "level-setter:seed register";
+        m_reading.confidence = m_setter.verified ? SeedConfidence::Recovered : SeedConfidence::Inferred;
+        m_reading.detail = m_setter.verified ? "runtime-validated" : "authoritative seed (F-088)";
     } else if (packetUsable && (!objectUsable || m_packet.sequence >= m_object.sequence)) {
         primary = &m_packet;
         primarySource = "server-packet:StartGamePacket+0xA8";
@@ -138,19 +185,28 @@ void SeedModule::drainCapture() {
             m_reading.detail = "unconfirmed field (F-051)";
         }
     } else if (m_reading.confidence == SeedConfidence::Unavailable
-               && (m_packet.failed || m_object.failed || srcLatched > srcVerified)) {
+               && (m_packet.failed || m_object.failed || m_setter.failed || srcLatched > srcVerified)) {
         std::string detail = "mismatch:";
+        bool first = true;
         if (m_packet.failed) {
             detail += " pkt exp " + std::to_string(m_packet.mismatchExpected)
                 + " got " + std::to_string(m_packet.mismatchGot);
+            first = false;
         }
         if (m_object.failed) {
-            if (m_packet.failed) detail += ";";
+            if (!first) detail += ";";
             detail += " obj exp " + std::to_string(m_object.mismatchExpected)
                 + " got " + std::to_string(m_object.mismatchGot);
+            first = false;
+        }
+        if (m_setter.failed) {
+            if (!first) detail += ";";
+            detail += " setter exp " + std::to_string(m_expectedSeed)
+                + " got " + std::to_string(m_setter.value);
+            first = false;
         }
         if (srcLatched > 0) {
-            if (m_packet.failed || m_object.failed) detail += ";";
+            if (!first) detail += ";";
             detail += " src " + std::to_string(srcVerified) + "/" + std::to_string(srcLatched);
         }
         m_reading.detail = detail;
@@ -235,13 +291,10 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
         validation.text = m_hasExpectedSeed
             ? "Validate: armed, expected " + std::to_string(m_expectedSeed)
             : "Validate: armed, no expected seed set";
-        if (m_hasExpectedSeed
-            && (m_expectedSeed < INT32_MIN || m_expectedSeed > INT32_MAX)) {
-            // Both capture paths read int32 fields: an out-of-range
-            // expectation can never match, so say so instead of letting
-            // the user stare at a guaranteed mismatch.
-            validation.text += " [! outside int32 range: cannot match]";
-        }
+        // No int32-range caveat any more (F-088): the setter and the src
+        // windows carry the seed as a full int64, so an expectation outside
+        // int32 CAN match. Only the legacy packet/object cross-checks are
+        // int32, and they no longer decide the verdict.
         commands.push_back(validation);
         y += m_textSize + 8.0f;
     }
@@ -250,7 +303,9 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
 void SeedModule::onFrame() {
     if (!enabled || !m_showHud) return;
     // Install is idempotent: retry until live (covers enable-before-load).
-    if (!capture::SeedCapture::packetHookActive()) capture::SeedCapture::install();
+    if (!capture::SeedCapture::packetHookActive() || !capture::SeedCapture::setterHookActive()) {
+        capture::SeedCapture::install();
+    }
     if (!capture::SrcScan::active()) capture::SrcScan::install();
     drainCapture();
     std::vector<DrawCommand> commands;
@@ -292,6 +347,8 @@ void SeedModule::loadConfig(const nlohmann::json& j) {
             m_packet.failed = false;
             m_object.verified = false;
             m_object.failed = false;
+            m_setter.verified = false;
+            m_setter.failed = false;
             for (auto& st : m_srcWindows) {
                 st.verified = false;
                 st.failed = false;

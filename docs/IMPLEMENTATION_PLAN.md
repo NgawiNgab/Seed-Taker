@@ -162,4 +162,48 @@ consts-only change (`Seed.hpp` + `SrcScan.hpp` comments; all loops
 already count-driven; hook untouched). On-device verdict: +0x0
 match with 0/7 controls = Recovered (perfect discrimination).
 Staleness: nil by idempotence (fallback: hook the setter).
-Next: PR #4 (commit + push + CI + device verdict) — approval-gated.
+Committed in PR #4; on-device result: local + LAN CORRECT (F-088).
+
+## Setter hook: the server path (F-088, implemented — uncommitted)
+
+Window-8 fixed local play and left the big Survival Server with no
+seed: `pkt ... got 0; src 0/8`, windows `+0x0=-1, +0x60=1,
++0x64..+0x78=0`. Both failures are structural, not tuning:
+
+- the packet leg reads the LEGACY INT32 `StartGamePacket+0xA8`
+  (F-058/F-087) — an old 32-bit field, always 0 on a server;
+- the src snapshot is taken at ctor ENTRY, and on the MP path the
+  server seed is written into src only AFTER the ctor runs, so the
+  snapshot sees a placeholder (`-1`).
+
+So the seed must be captured where it is REGISTERED, not where it is
+stored. `LevelData`'s seed setter `0x111463bc` is that point (F-086):
+`setter(this, seed)` with the u64 in x1, called by NBT load, the ctor,
+and the network path alike. DESIGN:
+
+- **Hook**: detour at `libraryBase("libminecraftpe.so") +
+  0x111463bc`; install is gated on TWO `bl` words inside the function
+  (`0x11146414`=`0x96FC3C16`, `0x11146494`=`0x94001FD3`, script-
+  computed and cross-checked against the ctor anchor `0x97E75B05`).
+  Anchor mismatch ⇒ refuse to patch (fail-safe, no wrong-function
+  patch). Prologue is a normal `sub sp,#0x80` frame — safely hookable
+  (the ≤16-byte-getter rule of F-073 does not apply).
+- **Publish**: full `int64` through a seqlock (odd sequence = write in
+  flight; reader retries, bounded) — the 32-bit packed atomic of the
+  legacy sources cannot carry the seed.
+- **Priority**: verified src window > setter > legacy packet/object.
+  The setter is authoritative and shows a value whenever it has fired;
+  confidence is Recovered once validated, Inferred otherwise (the seed
+  is still the seed — it is never withheld for lack of a check).
+- **Re-validation**: compared on EVERY new sequence (last call wins),
+  so a placeholder registered early on a network load can never latch
+  a stale mismatch (the ctor may register before the server value).
+- **Range guard removed**: the `[! outside int32 range: cannot match]`
+  caveat is obsolete — setter and src windows carry full int64, so an
+  out-of-int32 expectation can and must be able to match.
+- **Unchanged**: legacy packet/object legs stay as cross-checks; the
+  src windows stay as negative controls; nothing logs or allocates in
+  any detour.
+
+Host syntax gate 12/12. Pending: Survival Server re-test on-device
+(the setter must report as `capture: setter (primary)`), then PR.
