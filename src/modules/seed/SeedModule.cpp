@@ -38,6 +38,8 @@ void SeedModule::drainCapture() {
                 m_validationPassed = true;
             } else {
                 m_packet.failed = true;
+                m_packet.mismatchExpected = m_expectedSeed;
+                m_packet.mismatchGot = packet.seed;
                 pl::log::Logger::getOrCreate("SeedTaker")
                     .warn("Seed validation MISMATCH (packet): expected {}, got {}", m_expectedSeed, packet.seed);
             }
@@ -53,6 +55,8 @@ void SeedModule::drainCapture() {
                 m_validationPassed = true;
             } else {
                 m_object.failed = true;
+                m_object.mismatchExpected = m_expectedSeed;
+                m_object.mismatchGot = object.seed;
                 pl::log::Logger::getOrCreate("SeedTaker")
                     .warn("Seed validation MISMATCH (object): expected {}, got {}", m_expectedSeed, object.seed);
             }
@@ -87,7 +91,17 @@ void SeedModule::drainCapture() {
             m_reading.detail = "unconfirmed field (F-051)";
         }
     } else if (m_packet.failed || m_object.failed) {
-        m_reading.detail = "validation mismatch (see log)";
+        std::string detail = "mismatch:";
+        if (m_packet.failed) {
+            detail += " pkt exp " + std::to_string(m_packet.mismatchExpected)
+                + " got " + std::to_string(m_packet.mismatchGot);
+        }
+        if (m_object.failed) {
+            if (m_packet.failed) detail += ";";
+            detail += " obj exp " + std::to_string(m_object.mismatchExpected)
+                + " got " + std::to_string(m_object.mismatchGot);
+        }
+        m_reading.detail = detail;
     }
 }
 
@@ -146,6 +160,13 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
         validation.text = m_hasExpectedSeed
             ? "Validate: armed, expected " + std::to_string(m_expectedSeed)
             : "Validate: armed, no expected seed set";
+        if (m_hasExpectedSeed
+            && (m_expectedSeed < INT32_MIN || m_expectedSeed > INT32_MAX)) {
+            // Both capture paths read int32 fields: an out-of-range
+            // expectation can never match, so say so instead of letting
+            // the user stare at a guaranteed mismatch.
+            validation.text += " [! outside int32 range: cannot match]";
+        }
         commands.push_back(validation);
         y += m_textSize + 8.0f;
     }
