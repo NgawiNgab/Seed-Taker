@@ -207,3 +207,44 @@ and the network path alike. DESIGN:
 
 Host syntax gate 12/12. Pending: Survival Server re-test on-device
 (the setter must report as `capture: setter (primary)`), then PR.
+
+## F-089: first runtime verdict + reporting-layer fixes
+
+On-device result of the F-088 build, two paths:
+
+- **Local world** — seed RECOVERED, exact value
+  (`-6348884760859271012`), source `level-setter:seed register`. The
+  setter hook, its script-computed `bl` anchors, the int64 seqlock and
+  the "register point, not storage" premise are all CONFIRMED working.
+- **Survival Server (Mega SMP)** — still no seed: `~-1 (INFERRED)`,
+  `src+0x0=-1`, `+0x60=1`, `+0x64..0x78=0`, `armed, expected 0`. The
+  hook reported no fault (no anchor-mismatch state), but the old build
+  could not show whether the setter FIRED there.
+
+Three defects in the reporting layer surfaced, all fixed here:
+
+1. **Placeholder rendered as a seed.** With the src windows latched, the
+   HUD fell through to the legacy int32 packet leg — which is 0 on a
+   server — and printed `~-1 (INFERRED)`, i.e. it presented the legacy
+   slot's value as a candidate seed. When the setter has fired and
+   contradicts the armed expectation, that contradiction is now the
+   answer (`setter MISMATCH: expected X got Y`), not a fall-through.
+2. **Latent mismatches latched permanently.** A mismatch at ctor-entry
+   time (a placeholder on a server) locked the window forever, so a
+   real value arriving later could never validate. Mismatches are now
+   re-checked; only matches latch.
+3. **`armed, expected 0`.** `saveConfig` wrote `validateExpectedSeed=0`
+   for "unset", and `loadConfig` sets `hasExpectedSeed=true`
+   unconditionally — so an unconfigured or cleared install returned as
+   a REAL expected seed of 0. The key is now omitted when unset.
+
+Diagnostics added: an always-rendered `setter: fires=N last=V` line.
+This is the line that decides the open question — `fires=0` means the
+server seed never passes through `0x111463bc` (F-086's
+single-registration premise falsified for the MP path, next probe = the
+13 other callers); `fires=N` means it does and only the value is in
+question.
+
+Also added: `tools/hostgate/` — the host syntax gate now lives in the
+repo (stubs + script) instead of `/tmp`, which was being wiped between
+sessions. Still not a substitute for CI; it catches type errors only.

@@ -36,7 +36,10 @@ void SeedModule::drainCapture() {
     if (packet.sequence != 0 && packet.sequence != m_packet.sequence) {
         m_packet.sequence = packet.sequence;
         m_packet.value = packet.seed;
-        if (m_validationArmed && m_hasExpectedSeed && !m_packet.verified && !m_packet.failed) {
+        // Same latent-mismatch rule as the src windows (F-089): keep
+        // re-checking until a match latches; a mismatch is only a verdict
+        // for the value that happened to be in the slot at the time.
+        if (m_validationArmed && m_hasExpectedSeed && !m_packet.verified) {
             if (static_cast<std::int64_t>(packet.seed) == m_expectedSeed) {
                 m_packet.verified = true;
                 m_validationPassed = true;
@@ -53,7 +56,7 @@ void SeedModule::drainCapture() {
     if (object.sequence != 0 && object.sequence != m_object.sequence) {
         m_object.sequence = object.sequence;
         m_object.value = object.seed;
-        if (m_validationArmed && m_hasExpectedSeed && !m_object.verified && !m_object.failed) {
+        if (m_validationArmed && m_hasExpectedSeed && !m_object.verified) {
             if (static_cast<std::int64_t>(object.seed) == m_expectedSeed) {
                 m_object.verified = true;
                 m_validationPassed = true;
@@ -90,6 +93,8 @@ void SeedModule::drainCapture() {
             } else {
                 m_setter.verified = false;
                 m_setter.failed = true;
+                m_setter.mismatchExpected = m_expectedSeed;
+                m_setter.mismatchGot = setter.seed;
                 pl::log::Logger::getOrCreate("SeedTaker")
                     .warn("Seed validation MISMATCH (setter): expected {}, got {}", m_expectedSeed, setter.seed);
             }
@@ -102,10 +107,15 @@ void SeedModule::drainCapture() {
         if (snap.sequence != 0 && snap.sequence != st.sequence) {
             st.sequence = snap.sequence;
             st.value = snap.value;
-            if (m_validationArmed && m_hasExpectedSeed && !st.latched) {
-                st.latched = true;
+            // A LATENT mismatch never latches (F-089): on a server the
+            // ctor-entry snapshot sees only a placeholder, and the real
+            // value can land later — latching would make it unwinnable.
+            // An actual match always latches (nothing can unsay it).
+            if (m_validationArmed && m_hasExpectedSeed && !st.verified) {
                 if (snap.value == m_expectedSeed) {
                     st.verified = true;
+                    st.failed = false;
+                    st.latched = true;
                     m_validationPassed = true;
                 } else {
                     st.failed = true;
@@ -167,6 +177,18 @@ void SeedModule::drainCapture() {
         m_reading.source = "level-setter:seed register";
         m_reading.confidence = m_setter.verified ? SeedConfidence::Recovered : SeedConfidence::Inferred;
         m_reading.detail = m_setter.verified ? "runtime-validated" : "authoritative seed (F-088)";
+    } else if (m_setter.failed && m_setter.sequence != 0) {
+        // The setter DID fire and its value contradicted the armed
+        // expectation. Falling through to the legacy legs here is what made
+        // a server report read "~-1 (INFERRED) ... src+0x0 = -1": the
+        // legacy int32 packet slot is 0, so the HUD showed a placeholder
+        // instead of the mismatch that actually happened. Show the verdict
+        // and the value the setter really registered.
+        m_reading.value = m_setter.value;
+        m_reading.source = "level-setter:seed register";
+        m_reading.confidence = SeedConfidence::Inferred;
+        m_reading.detail = "setter MISMATCH: expected " + std::to_string(m_setter.mismatchExpected)
+            + " got " + std::to_string(m_setter.mismatchGot);
     } else if (packetUsable && (!objectUsable || m_packet.sequence >= m_object.sequence)) {
         primary = &m_packet;
         primarySource = "server-packet:StartGamePacket+0xA8";
@@ -279,6 +301,38 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
         }
     }
 
+    // Setter debug (F-089): the one line that decides the server question,
+    // shown with or without validation armed. "fires=0" means the server
+    // seed never passes through 0x111463bc (premise F-086 falsified for
+    // that path); "fires=N" plus a value means it DOES and the question
+    // becomes which value. Without this, a silent setter and a wrong-value
+    // setter look identical in a HUD-only report.
+    {
+        char line[160];
+        if (m_setter.sequence == 0) {
+            std::snprintf(line, sizeof(line), "setter: fires=0 (%s)",
+                          capture::SeedCapture::setterHookActive() ? "armed, no registration"
+                                                                  : "NOT INSTALLED");
+        } else {
+            std::snprintf(line, sizeof(line), "setter: fires=%llu last=%lld%s",
+                          static_cast<unsigned long long>(m_setter.sequence),
+                          static_cast<long long>(m_setter.value),
+                          m_setter.verified ? " (validated)"
+                                            : (m_setter.failed ? " (mismatch)" : ""));
+        }
+        DrawCommand s{};
+        s.type = DrawCommandType::Text;
+        s.x = m_hudPosX;
+        s.y = y;
+        s.w = 900.0f;
+        s.h = m_textSize + 8.0f;
+        s.color = 0xFF66DDFF;
+        s.size = m_textSize;
+        s.text = line;
+        commands.push_back(s);
+        y += m_textSize + 8.0f;
+    }
+
     if (m_validationArmed && !m_validationPassed) {
         DrawCommand validation{};
         validation.type = DrawCommandType::Text;
@@ -372,8 +426,17 @@ void SeedModule::saveConfig(nlohmann::json& j) {
     j["m_showHud"] = m_showHud;
     j["m_textSize"] = m_textSize;
     j["validationArmed"] = m_validationArmed;
-    // Always written so the menu entry persists; harmless while disarmed.
-    j["validateExpectedSeed"] = m_hasExpectedSeed ? m_expectedSeed : 0;
+    // Only write the key when a seed is actually set. Writing 0 for "unset"
+    // made loadConfig resurrect it as a REAL expected seed of 0 (it sets
+    // m_hasExpectedSeed = true unconditionally), so an unconfigured or
+    // cleared install came up "armed, expected 0" — a verdict against a
+    // seed nobody chose (F-089). Omitting the key leaves hasExpectedSeed
+    // false, and every comparison stays gated on it.
+    if (m_hasExpectedSeed) {
+        j["validateExpectedSeed"] = m_expectedSeed;
+    } else {
+        j.erase("validateExpectedSeed");
+    }
 }
 
 }

@@ -80,6 +80,11 @@ private:
         std::int64_t value = 0;
         bool verified = false;
         bool failed = false;
+        // Recorded on mismatch (F-089): without these the HUD fell through
+        // to the legacy int32 legs and printed a placeholder instead of the
+        // real "setter registered X, expected Y" contradiction.
+        std::int64_t mismatchExpected = 0;
+        std::int64_t mismatchGot = 0;
     };
     SetterState m_setter;
     // Src-scan windows (F-071/F-072): one state per int64 snapshot window.
