@@ -1,10 +1,12 @@
 #pragma once
 
 // SeedTaker's feature module. Capture status: the PACKET path is live
-// (slot-37 hook -> StartGamePacket+0xA8, INFERRED until runtime-validated);
-// the OBJECT path (LevelData.+0x3b0 via Level::initialize) is prepared but
-// disabled pending the ST-009 address. See capture/SeedCapture.hpp,
-// docs/IMPLEMENTATION_PLAN.md, and docs/EVIDENCE_LOG.md (F-048..F-055).
+// (slot-37 hook -> StartGamePacket+0xA8, INFERRED until runtime-validated)
+// and the SRC-SCAN path is live (getter-hook -> 7 int64 windows over the
+// src settings cluster, F-071/F-072); the OBJECT path (LevelData.+0x3b0
+// via Level::initialize) stays prepared-but-disabled as backup (vehicle
+// retired, F-067). See capture/SeedCapture.hpp, capture/SrcScan.hpp,
+// docs/IMPLEMENTATION_PLAN.md, and docs/EVIDENCE_LOG.md (F-048..F-072).
 //
 // SPEC §4 is enforced in onFrame: no number is rendered while unavailable,
 // and inferred values always carry an explicit INFERRED marking. Packet and
@@ -13,6 +15,8 @@
 
 #include "../Module.hpp"
 #include "modules/ModuleRegistry.hpp"
+#include <seedtaker/sdk/offsets/Seed.hpp>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -68,6 +72,17 @@ private:
     SeedReading m_reading;
     SourceState m_packet;
     SourceState m_object;
+    // Src-scan windows (F-071/F-072): one state per int64 snapshot window.
+    // Each window one-shots independently against the expected seed; a
+    // full-int64 match is runtime validation (Recovered).
+    struct WindowState {
+        std::uint64_t sequence = 0;
+        std::int64_t value = 0;
+        bool verified = false;
+        bool failed = false;
+        bool latched = false; // One-shot comparison done for this arming.
+    };
+    std::array<WindowState, sdk::offsets::seed::SrcScanWindowCount> m_srcWindows;
     // One-shot validation: the first reading per source after arming is
     // compared against m_expectedSeed. Match -> verified (Recovered);
     // mismatch -> source failed (Unavailable, sticky until re-armed).

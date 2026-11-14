@@ -9,6 +9,7 @@
 // through the confidence pipeline (SeedReading) and never as a bare fact.
 
 #include <cstddef>
+#include <cstdint>
 
 namespace seedtaker::sdk::offsets::seed {
 
@@ -34,5 +35,21 @@ inline constexpr std::size_t StartGameIdSlot = 2;
 // Packet-relative int32 traced packet -> src+0x78 -> LevelData.+0x3b0
 // (payload+0x78, payload base = packet+0x30; F-049, ST-008).
 inline constexpr std::size_t StartGameSeedOffset = 0xA8;
+
+// LevelSettings int32 getter, file VA (F-048): `ldr w0,[x0,#0x78];ret`.
+// Hooked by SrcScan (pure-C++ detour — known 1-arg signature, zero
+// reg-shape risk) to snapshot the src settings cluster on every call;
+// the 64-bit seed hunt's runtime vehicle (F-067 refined by F-072).
+// Live address = libraryBase("libminecraftpe.so") + this VA (ET_DYN).
+inline constexpr std::uintptr_t SrcGetterFileVA = 0x10b1da08;
+// Expected 8-byte body at SrcGetterFileVA, verified before hooking
+// (fail-safe against a bad slide: refuse rather than hook blind).
+// `ldr w0,[x0,#0x78]` = 0xB9407800, `ret` = 0xD65F03C0.
+inline constexpr std::uint64_t SrcGetterBody = 0xD65F03C0B9407800ull;
+// 7 int64 snapshot windows over the src cluster (F-071). Every window
+// lies in a 16B chunk anchored by a known game read (0x64 / 0x78),
+// so all reads stay mapped by malloc granularity (16B, Android arm64).
+inline constexpr std::size_t SrcScanWindowCount = 7;
+inline constexpr std::size_t SrcScanWindows[SrcScanWindowCount] = {0x60, 0x64, 0x68, 0x6c, 0x70, 0x74, 0x78};
 
 }

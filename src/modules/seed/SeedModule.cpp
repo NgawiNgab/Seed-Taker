@@ -1,7 +1,9 @@
 #include "SeedModule.hpp"
 #include "capture/SeedCapture.hpp"
+#include "capture/SrcScan.hpp"
 #include "modules/ModuleRegistry.hpp"
 #include <pl/Logger.hpp>
+#include <cstdio>
 #include <cstdlib>
 
 namespace seedtaker {
@@ -21,10 +23,12 @@ void SeedModule::onInit() {
 
 void SeedModule::onEnable() {
     capture::SeedCapture::install();
+    capture::SrcScan::install();
 }
 
 void SeedModule::onDisable() {
     capture::SeedCapture::uninstall();
+    capture::SrcScan::uninstall();
 }
 
 void SeedModule::drainCapture() {
@@ -63,24 +67,67 @@ void SeedModule::drainCapture() {
         }
     }
 
-    // Primary = newest usable reading across sources. Failed sources are
-    // excluded; divergences are surfaced at render time, never merged.
+    for (std::size_t w = 0; w < sdk::offsets::seed::SrcScanWindowCount; ++w) {
+        const auto snap = capture::SrcScan::windowReading(w);
+        auto& st = m_srcWindows[w];
+        if (snap.sequence != 0 && snap.sequence != st.sequence) {
+            st.sequence = snap.sequence;
+            st.value = snap.value;
+            if (m_validationArmed && m_hasExpectedSeed && !st.latched) {
+                st.latched = true;
+                if (snap.value == m_expectedSeed) {
+                    st.verified = true;
+                    m_validationPassed = true;
+                } else {
+                    st.failed = true;
+                    char off[16];
+                    std::snprintf(off, sizeof(off), "0x%zx",
+                                  sdk::offsets::seed::SrcScanWindows[w]);
+                    pl::log::Logger::getOrCreate("SeedTaker")
+                        .warn("Seed validation MISMATCH (src-scan {}): expected {}, got {}",
+                              off, m_expectedSeed, snap.value);
+                }
+            }
+        }
+    }
+
+    // Primary: a runtime-verified src window wins outright (only full-int64
+    // leg); otherwise newest usable packet/object reading. Failed sources
+    // are excluded; divergences surface at render time, never merged.
     const bool packetUsable = m_packet.sequence != 0 && !m_packet.failed;
     const bool objectUsable = m_object.sequence != 0 && !m_object.failed;
+    std::size_t verifiedSrc = sdk::offsets::seed::SrcScanWindowCount;
+    std::size_t srcLatched = 0;
+    std::size_t srcVerified = 0;
+    for (std::size_t w = 0; w < sdk::offsets::seed::SrcScanWindowCount; ++w) {
+        if (m_srcWindows[w].latched) ++srcLatched;
+        if (m_srcWindows[w].verified) {
+            ++srcVerified;
+            if (verifiedSrc == sdk::offsets::seed::SrcScanWindowCount) verifiedSrc = w;
+        }
+    }
     m_reading.value.reset();
     m_reading.confidence = SeedConfidence::Unavailable;
     m_reading.source = "none";
-    m_reading.detail = capture::SeedCapture::status();
+    m_reading.detail = std::string(capture::SeedCapture::status()) + " | " + capture::SrcScan::status();
     const SourceState* primary = nullptr;
     const char* primarySource = nullptr;
-    if (packetUsable && (!objectUsable || m_packet.sequence >= m_object.sequence)) {
+    if (verifiedSrc != sdk::offsets::seed::SrcScanWindowCount) {
+        char label[64];
+        std::snprintf(label, sizeof(label), "src-scan:src+0x%zx",
+                      sdk::offsets::seed::SrcScanWindows[verifiedSrc]);
+        m_reading.value = m_srcWindows[verifiedSrc].value;
+        m_reading.source = label;
+        m_reading.confidence = SeedConfidence::Recovered;
+        m_reading.detail = "runtime-validated";
+    } else if (packetUsable && (!objectUsable || m_packet.sequence >= m_object.sequence)) {
         primary = &m_packet;
         primarySource = "server-packet:StartGamePacket+0xA8";
     } else if (objectUsable) {
         primary = &m_object;
         primarySource = "level-object:LevelData+0x3b0";
     }
-    if (primary) {
+    if (m_reading.confidence == SeedConfidence::Unavailable && primary) {
         m_reading.value = static_cast<std::int64_t>(primary->value);
         m_reading.source = primarySource;
         if (primary->verified) {
@@ -90,7 +137,8 @@ void SeedModule::drainCapture() {
             m_reading.confidence = SeedConfidence::Inferred;
             m_reading.detail = "unconfirmed field (F-051)";
         }
-    } else if (m_packet.failed || m_object.failed) {
+    } else if (m_reading.confidence == SeedConfidence::Unavailable
+               && (m_packet.failed || m_object.failed || srcLatched > srcVerified)) {
         std::string detail = "mismatch:";
         if (m_packet.failed) {
             detail += " pkt exp " + std::to_string(m_packet.mismatchExpected)
@@ -100,6 +148,10 @@ void SeedModule::drainCapture() {
             if (m_packet.failed) detail += ";";
             detail += " obj exp " + std::to_string(m_object.mismatchExpected)
                 + " got " + std::to_string(m_object.mismatchGot);
+        }
+        if (srcLatched > 0) {
+            if (m_packet.failed || m_object.failed) detail += ";";
+            detail += " src " + std::to_string(srcVerified) + "/" + std::to_string(srcLatched);
         }
         m_reading.detail = detail;
     }
@@ -148,6 +200,29 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
         y += m_textSize + 8.0f;
     }
 
+    // Src-scan debug: while armed and unmatched, show every snapped window
+    // so a field report carries the raw values (logcat is unreachable).
+    if (m_validationArmed && !m_validationPassed) {
+        for (std::size_t w = 0; w < sdk::offsets::seed::SrcScanWindowCount; ++w) {
+            if (m_srcWindows[w].sequence == 0) continue;
+            char line[64];
+            std::snprintf(line, sizeof(line), "src+0x%zx = %lld",
+                          sdk::offsets::seed::SrcScanWindows[w],
+                          static_cast<long long>(m_srcWindows[w].value));
+            DrawCommand win{};
+            win.type = DrawCommandType::Text;
+            win.x = m_hudPosX;
+            win.y = y;
+            win.w = 900.0f;
+            win.h = m_textSize + 8.0f;
+            win.color = 0xFF88FF88;
+            win.size = m_textSize;
+            win.text = line;
+            commands.push_back(win);
+            y += m_textSize + 8.0f;
+        }
+    }
+
     if (m_validationArmed && !m_validationPassed) {
         DrawCommand validation{};
         validation.type = DrawCommandType::Text;
@@ -174,6 +249,9 @@ void SeedModule::renderReading(std::vector<DrawCommand>& commands, float& y) con
 
 void SeedModule::onFrame() {
     if (!enabled || !m_showHud) return;
+    // Install is idempotent: retry until live (covers enable-before-load).
+    if (!capture::SeedCapture::packetHookActive()) capture::SeedCapture::install();
+    if (!capture::SrcScan::active()) capture::SrcScan::install();
     drainCapture();
     std::vector<DrawCommand> commands;
     float y = m_hudPosY;
@@ -214,6 +292,11 @@ void SeedModule::loadConfig(const nlohmann::json& j) {
             m_packet.failed = false;
             m_object.verified = false;
             m_object.failed = false;
+            for (auto& st : m_srcWindows) {
+                st.verified = false;
+                st.failed = false;
+                st.latched = false;
+            }
             m_validationPassed = false;
         }
         m_validationArmed = armed;

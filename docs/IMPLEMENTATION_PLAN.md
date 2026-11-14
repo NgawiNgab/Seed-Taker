@@ -22,14 +22,15 @@ vtable-base check).
 ## Design (shipped in this branch)
 
 ```
-slot-37 detour (network thread)          Level::initialize detour (DISABLED, ST-009)
-  getId == 0x0B?                           levelSettings vtable == LevelData base?
-    yes -> packet+0xA8 -(atomic)->            yes -> slot-8 call -(atomic)->
-    no  -> rejectedPackets++                  no  -> typeMismatches++
-                                              |
-SeedModule::onFrame (GL thread): drain by sequence -> validate (one-shot per
-source while armed) -> primary = newest usable -> render (SPEC §4) + DIVERGE
-line when packet != object + validation line while armed.
+slot-37 detour (network thread)          src-getter detour (F-072; games threads below)
+  getId == 0x0B?                           call original -> snapshot 7 int64
+    yes -> packet+0xA8 -(atomic)->           windows over src+0x60..0x78
+    no  -> rejectedPackets++                 -(per-window atomics)->
+(Level::initialize detour: RETIRED vehicle, F-067; kept as backup)
+SeedModule::onFrame (GL thread): retry installs (idempotent) -> drain by
+sequence -> validate (one-shot per source/window while armed) -> primary =
+verified src window, else newest usable -> render (SPEC §4) + DIVERGE line
+when packet != object + per-window debug lines + validation line (armed).
 ```
 
 - `include/seedtaker/sdk/offsets/Seed.hpp`: constants with per-value
@@ -41,6 +42,11 @@ line when packet != object + validation line while armed.
   (idempotent, mutex-guarded, module-owned per the BedrockTools pattern),
   both detours, packed-atomic readings, diagnostic counters, status string.
   Detours allocate/lock/log nothing.
+- `src/modules/seed/capture/SrcScan.*` (F-071/F-072): src-getter hook
+  (file VA + slide, body-verified pre-hook); post-call 7-window int64
+  snapshot via per-window value+seq atomics; lock-free, status string.
+- `libraryBase()` (`VtableScan.*`): dlpi_addr of a loaded library for
+  file-VA rebasing (ST-005 slide, computed at runtime).
 - `SeedModule`: default-on passive observer; drains, validates (config keys
   `validationArmed`, `validateExpectedSeed`), renders. Per-source verified/
   failed flags; mismatch excludes that source (sticky until re-armed).
@@ -53,7 +59,7 @@ line when packet != object + validation line while armed.
 - LevelInit address (BT's is a byte pattern for another build — rejected,
   F-054). The detour + install site + vtable gate are written; the
   `SignatureId::LevelInit` definition is empty so the path stays disabled
-  and reported. ST-009 (proposed) finds the 1.26.62 address.
+  and reported (kept as backup; LevelInit hunt retired, F-067). ST-010 hunts the int64 field on LevelSettings (F-068); the ctor-hook (known VA 0x11146b24+slide) is the new vehicle.
 - Sig-hooks as backup (optional; F-052). RTTI+vtable is primary.
 - Heap-scan LevelData discovery (fallback option if LevelInit disappoints).
 - Wire-field map of packet+0xA8 (infeasible statically, F-050) — answered
@@ -72,9 +78,11 @@ behavior without seeing it.
 
 ## Runtime validation protocol (on-device, user-operated)
 
-1. SP known-seed: new world, seed e.g. `12345`. Packet path will NOT fire
-   (no StartGame packet locally) — object path pending ST-009, so expect
-   `unavailable` in this iteration; record the status line.
+1. SP known-seed: new world, seed e.g. `12345`. Packet path FIRES on
+   loopback 0x0B packets (F-058 — the old "no packet locally" prediction
+   was wrong); expect `~0 (INFERRED - server-packet...)` until the int64
+   object path lands (ST-010 field decision → ctor-hook). Record the
+   status line; use validation mode for verdicts, never the raw line.
 2. MP: join any server. Expect `~N (INFERRED - server-packet...)`.
    `rejectedPackets` should stay 0 (slot-37 exclusivity check).
 3. Validation: in the menu (or config.json), set `validateExpectedSeed`
@@ -93,7 +101,7 @@ behavior without seeing it.
   network instability in MP testing and report it as P0.
 - `levelSettings` may not be LevelData (type unverified): mitigated by
   the vtable check (safe skip + counter), but the SP path may need a
-  different acquisition if the check persistently fails (ST-009 input).
+  different acquisition (answered: ctor-hook supersedes LevelInit, F-067).
 - `resolveVtableFunction` behavior on this build is trusted from the
   preloader API contract; if StartGameHandle fails to resolve on-device,
   the status line reports `capture: unresolved` (check log Rtti names).

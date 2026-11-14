@@ -49,6 +49,18 @@ int visitPhdr(dl_phdr_info* info, std::size_t, void* data) {
 // 0 = unresolved, 1 = unresolvable, otherwise the verified base.
 std::atomic<std::uintptr_t> levelDataBase{0};
 
+struct BaseContext {
+    const char* library;
+    std::uintptr_t base = 0;
+};
+
+int visitBase(dl_phdr_info* info, std::size_t, void* data) {
+    auto* ctx = static_cast<BaseContext*>(data);
+    if (!info->dlpi_name || !std::strstr(info->dlpi_name, ctx->library)) return 0;
+    ctx->base = static_cast<std::uintptr_t>(info->dlpi_addr);
+    return 1;
+}
+
 }
 
 std::uintptr_t resolveVtableBase(const char* rttiName, std::size_t firstSlot, const char* libraryName) {
@@ -72,6 +84,13 @@ bool isLevelDataInstance(const void* instance) {
         return false;
     }
     return load64(instance) == base;
+}
+
+std::uintptr_t libraryBase(const char* libraryName) {
+    if (!libraryName) return 0;
+    BaseContext ctx{libraryName, 0};
+    dl_iterate_phdr(visitBase, &ctx);
+    return ctx.base;
 }
 
 }

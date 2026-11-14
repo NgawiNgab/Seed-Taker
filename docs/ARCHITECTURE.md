@@ -26,7 +26,10 @@ src/
   core/events/Events.cpp   bus() singleton
   modules/Module.hpp       lifecycle + config contract
   modules/ModuleRegistry.* ownership, lookup, fan-out, draw helper
-  modules/seed/*           SeedModule stub (status HUD, no native calls)
+  modules/seed/SeedModule.*  drain/validate/render (packet+object+7 src windows)
+  modules/seed/capture/SeedCapture.*  slot-37 + LevelInit detours, atomics
+  modules/seed/capture/VtableScan.*   vtable-base verify + libraryBase()
+  modules/seed/capture/SrcScan.*      src-getter hook, 7-window snapshots
   config/ConfigManager.*   debounced JSON store
   launcher/ModuleMenu.*    pl::modmenu registration + typed config inference
 ```
