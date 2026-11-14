@@ -107,3 +107,59 @@ behavior without seeing it.
 - `resolveVtableFunction` behavior on this build is trusted from the
   preloader API contract; if StartGameHandle fails to resolve on-device,
   the status line reports `capture: unresolved` (check log Rtti names).
+
+## FIELD-001 verdict + memory-editor hunt (on-device, user-operated)
+
+FIELD-001 (SP, known seed -3821773851083165131): ctor wrapper
+survived, scan verdict 0/7 — the seed is not in src+0x60..0x78
+(F-075/F-076). Next: live hunt with LeviMemEditor v1.5.0 (F-077):
+
+1. Load the known-seed SP world, open the editor (M button).
+2. Analyze → Hex signature `35 B2 4F 5A EE 54 F6 CA`, scope All
+   readable (else Writable), budget up. (Alternate: Results → Qword
+   exact search for -3821773851083165131 / 14624970222626386485.)
+3. Per hit: RVA inspector 128B view, record VA + surrounding bytes.
+4. Pointer-reference search on the hit / container base to identify
+   the holding object. Read-only: no freeze/write/hook.
+5. Return: hit VAs + surrounding bytes + pointer-ref results → maps
+   to struct+offset; if LevelData, extend the wrapper to x0 windows.
+
+## ST-011: consumer-side hunt (Zaphkiel, user-operated)
+
+Memory-editor path retired after 3 scoreless attempts (F-081). The
+ST-007 re-grep proved the LevelData ctor copies nothing 64-bit from
+src (F-082) — producer-side exhausted. ST-011 works from the seed's
+CONSUMERS: T1 `STRUCT SeedHandler` (the copy-seed UI provably
+displays the live seed on-device); T2 conditional `fn<>` on the
+seed-reading method; T3 `findclass<RandomSeed>` backup. Input filed
+at `evidence/ST-011/zInput.txt`; return `zaphkiel_out-11.txt`.
+
+Run 1 (2026-11-14, PARTIAL, F-083): T1 misfired — bare STRUCT went
+down the STRING path (retry: `struct<SeedHandler>`); T3 correctly
+negative (RandomSeed has no typeinfo — NBT key only, retry as raw
+string search + xref). Retry input: `evidence/ST-011/zInput-retry.txt`.
+Side proof: lib size 342231392 B ≈ 326 MiB confirms memeditor
+attempt-1's 323 MiB scan was .so-only (F-078).
+
+## ST-012: setter + src getter dumps (Zaphkiel, user-operated)
+
+ST-011 T3-string found the seed loop (F-084) and setter-sharing
+proved ab28 = src's u64 seed getter (F-085). ST-012 resolves BOTH
+homes: P0 `fn<0x111463bc>` (setter body — predict container insert,
+possibly + direct store) + P1 `fn<0x10b0ab28>` (predict `ldr
+x0,[x0,#OFF2]` — explains FIELD-001's 0/7; kill-condition stated) +
+P2 `struct<SeedHandler>` re-issue. Input:
+`evidence/ST-012/zInput.txt`; return `zaphkiel_out-12.txt` (~3K
+lines acceptable). Clean resolution ⇒ runtime read design.
+
+## Window-8 implementation (ST-012 resolution, uncommitted)
+
+ST-012 resolved both homes: LevelData-side = container rule
+(this+0x4f8, type-7, +0x38 — F-086, no direct member); src-side =
+src+0x0 (F-087). Implementation: 8th scan window at src+0x0
+(window 0 = prediction, windows 1-7 = negative controls) —
+consts-only change (`Seed.hpp` + `SrcScan.hpp` comments; all loops
+already count-driven; hook untouched). On-device verdict: +0x0
+match with 0/7 controls = Recovered (perfect discrimination).
+Staleness: nil by idempotence (fallback: hook the setter).
+Next: PR #4 (commit + push + CI + device verdict) — approval-gated.

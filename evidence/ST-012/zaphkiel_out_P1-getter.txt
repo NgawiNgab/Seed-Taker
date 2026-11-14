@@ -1,0 +1,282 @@
+=== Zaphkiel RE Framework ===
+config: /storage/emulated/0/Android/media/org.levimc.launcher/kurumi/zaphkiel_config.txt
+lib: /data/data/org.levimc.launcher/files/minecraft_libs/com.mojang.minecraftpe/arm64/libminecraftpe.so
+loaded 342231392 bytes
+segments: 7
+  fo=0x0  va=0x0  sz=0x13686ff0
+  fo=0x13686ff0  va=0x1368aff0  sz=0x97c010
+  fo=0x14002668  va=0x1400a668  sz=0x2fee38
+  fo=0x14304000  va=0x14310000  sz=0x10
+  fo=0x14308000  va=0x14318000  sz=0x1000
+  fo=0x1430c000  va=0x14320000  sz=0x352e80
+  fo=0x14660000  va=0x14678000  sz=0x260
+lib text bounds: 2 executable range(s)
+    0x0 - 0x13686ff0
+    0x14318000 - 0x14319000
+targets: 1
+
+============================================================
+DIRECT [FN]: fn<0x10b0ab28>
+============================================================
+[FN] fn=0x10b0ab28
+  params: x0=this
+--- disasm ---
+0x10b0ab28  ldr  x0, [x0]
+0x10b0ab2c  ret  
+  return_type (guess): unknown (no ret found)
+--- callers (5) ---
+  [CALLER] fn=0xbf2b1b0
+  --- disasm ---
+  0xbf2b1b0  stp  xzr, xzr, [sp, #0x28]
+  0xbf2b1b4  str  xzr, [sp, #0x38]
+  0xbf2b1b8  sub  x8, x29, #0x30  ×48×
+  0xbf2b1bc  add  x2, sp, #0x28  ×40×
+  0xbf2b1c0  mov  x0, x19
+  0xbf2b1c4  mov  w1, w22
+  0xbf2b1c8  bl  0xbfa50fc  ; CALL 0xbfa50fc
+  0xbf2b1cc  add  x0, sp, #0x40  ×64×
+  0xbf2b1d0  add  x2, sp, #0x8  ×8×
+  0xbf2b1d4  sub  x3, x29, #0x30  ×48×
+  0xbf2b1d8  mov  w1, w22
+  0xbf2b1dc  mov  w4, wzr
+  0xbf2b1e0  bl  0xbfaf4b8  ; CALL 0xbfaf4b8
+  0xbf2b1e4  sub  x24, x29, #0x30  ×48×
+  0xbf2b1e8  ldr  x22, [x24, #0x10]
+  0xbf2b1ec  cbnz  x22, 0xbf2b22c
+  0xbf2b1f0  ldr  x0, [x24]
+  0xbf2b1f4  str  xzr, [x24]
+  0xbf2b1f8  cbz  x0, 0xbf2b200
+  0xbf2b1fc  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b200  ldr  x22, [sp, #0x28]
+  0xbf2b204  cbz  x22, 0xbf2b290
+  0xbf2b208  ldr  x8, [sp, #0x30]
+  0xbf2b20c  cmp  x8, x22
+  0xbf2b210  b.eq  0xbf2b288
+  0xbf2b214  mov  x25, x8
+  0xbf2b218  b  0xbf2b274  ; TAIL 0xbf2b274
+  0xbf2b21c  mov  x0, x22
+  0xbf2b220  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b224  mov  x22, x25
+  0xbf2b228  cbz  x25, 0xbf2b1f0
+  0xbf2b22c  ldr  x25, [x22]
+  0xbf2b230  add  x0, x22, #0x40  ×64×
+  0xbf2b234  bl  0x135d3d60  ; CALL 0x135d3d60
+  0xbf2b238  ldrb  w8, [x22, #0x28]
+  0xbf2b23c  tbnz  w8, #0x0, 0xbf2b24c
+  0xbf2b240  ldrb  w8, [x22, #0x10]
+  0xbf2b244  tbz  w8, #0x0, 0xbf2b21c
+  0xbf2b248  b  0xbf2b25c  ; TAIL 0xbf2b25c
+  0xbf2b24c  ldr  x0, [x22, #0x38]
+  0xbf2b250  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b254  ldrb  w8, [x22, #0x10]
+  0xbf2b258  tbz  w8, #0x0, 0xbf2b21c
+  0xbf2b25c  ldr  x0, [x22, #0x20]
+  0xbf2b260  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b264  b  0xbf2b21c  ; TAIL 0xbf2b21c
+  0xbf2b268  cmp  x25, x22
+  0xbf2b26c  mov  x8, x25
+  0xbf2b270  b.eq  0xbf2b288
+  0xbf2b274  ldrb  w9, [x25, #0xffffffffffffffe8]!
+  0xbf2b278  tbz  w9, #0x0, 0xbf2b268
+  0xbf2b27c  ldur  x0, [x8, #0xfffffffffffffff8]
+  0xbf2b280  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b284  b  0xbf2b268  ; TAIL 0xbf2b268
+  0xbf2b288  mov  x0, x22
+  0xbf2b28c  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b290  ldrb  w8, [sp, #0x8]
+  0xbf2b294  tbz  w8, #0x0, 0xbf2b2a0
+  0xbf2b298  ldr  x0, [sp, #0x18]
+  0xbf2b29c  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b2a0  mov  x0, x20
+  0xbf2b2a4  bl  0x10b0ab28  ; CALL 0x10b0ab28
+  0xbf2b2a8  str  x0, [x24]
+  0xbf2b2ac  adrp  x1, 0x2642000
+  0xbf2b2b0  add  x1, x1, #0xb99  ; "WorldSeed"
+  0xbf2b2b4  add  x0, sp, #0x40  ×64×
+  0xbf2b2b8  sub  x2, x29, #0x30  ×48×
+  0xbf2b2bc  mov  w3, #0xb  ×11×
+  0xbf2b2c0  mov  w4, #0x1
+  0xbf2b2c4  bl  0x88e2ea8  ; CALL 0x88e2ea8
+  0xbf2b2c8  mov  x0, x20
+  0xbf2b2cc  bl  0x10b0ac44  ; CALL 0x10b0ac44
+  0xbf2b2d0  stur  w0, [x29, #0xffffffffffffffd0]
+  0xbf2b2d4  adrp  x1, 0x27bc000
+  0xbf2b2d8  add  x1, x1, #0xe1c  ; "Mode"
+  0xbf2b2dc  add  x0, sp, #0x40  ×64×
+  0xbf2b2e0  sub  x2, x29, #0x30  ×48×
+  0xbf2b2e4  bl  0xbf0fa48  ; CALL 0xbf0fa48
+  0xbf2b2e8  adrp  x1, 0x26df000
+  0xbf2b2ec  add  x1, x1, #0x21  ; "SaveId"
+  0xbf2b2f0  add  x0, sp, #0x40  ×64×
+  0xbf2b2f4  mov  x2, x21
+  0xbf2b2f8  mov  w3, #0x9  ×9×
+  0xbf2b2fc  mov  w4, #0x1
+  0xbf2b300  bl  0x88e26b8  ; CALL 0x88e26b8
+  0xbf2b304  adrp  x1, 0x26a1000
+  0xbf2b308  add  x1, x1, #0x54  ; "fromTemplate"
+  0xbf2b30c  add  x0, sp, #0x40  ×64×
+  0xbf2b310  add  x2, sp, #0x4  ×4×
+  0xbf2b314  mov  w3, #0xb  ×11×
+  0xbf2b318  mov  w4, #0x1
+  0xbf2b31c  bl  0x88e2840  ; CALL 0x88e2840
+  0xbf2b320  mov  x0, x20
+  0xbf2b324  bl  0x10b1da20  ; CALL 0x10b1da20
+  0xbf2b328  and  w8, w0, #0x1
+  0xbf2b32c  sturb  w8, [x29, #0xffffffffffffffd0]
+  0xbf2b330  adrp  x1, 0x26df000
+  0xbf2b334  add  x1, x1, #0x28  ; "EducationFeaturesEnabled"
+  0xbf2b338  add  x0, sp, #0x40  ×64×
+  0xbf2b33c  sub  x2, x29, #0x30  ×48×
+  0xbf2b340  mov  w3, #0xb  ×11×
+  0xbf2b344  mov  w4, #0x1
+  0xbf2b348  bl  0x88e2840  ; CALL 0x88e2840
+  0xbf2b34c  mov  x0, x20
+  0xbf2b350  bl  0x10b1d9d8  ; CALL 0x10b1d9d8
+  0xbf2b354  cmp  w0, #0x2  ×2×
+  0xbf2b358  b.ne  0xbf2b408
+  0xbf2b35c  mov  x0, x20
+  0xbf2b360  bl  0x10b1d9e0  ; CALL 0x10b1d9e0
+  0xbf2b364  add  x8, sp, #0x28  ×40×
+  0xbf2b368  bl  0x1127ba50  ; CALL 0x1127ba50
+  0xbf2b36c  add  x0, sp, #0x28  ×40×
+  0xbf2b370  bl  0x1127bbd0  ; CALL 0x1127bbd0
+  0xbf2b374  str  x0, [sp, #0x20]
+  0xbf2b378  sub  x0, x29, #0x30  ×48×
+  0xbf2b37c  bl  0x135d4770  ; CALL 0x135d4770
+  0xbf2b380  add  x8, sp, #0x8  ×8×
+  0xbf2b384  sub  x0, x29, #0x30  ×48×
+  0xbf2b388  add  x1, sp, #0x28  ×40×
+  0xbf2b38c  bl  0x135d4780  ; CALL 0x135d4780
+  0xbf2b390  adrp  x1, 0x24e7000
+  0xbf2b394  add  x1, x1, #0x4e1  ; "flatWorldOptions"
+  0xbf2b398  add  x0, sp, #0x40  ×64×
+  0xbf2b39c  add  x2, sp, #0x8  ×8×
+  0xbf2b3a0  mov  w3, #0x3  ×3×
+  0xbf2b3a4  mov  w4, #0x1
+  0xbf2b3a8  bl  0x88e26b8  ; CALL 0x88e26b8
+  0xbf2b3ac  ldrb  w8, [sp, #0x8]
+  0xbf2b3b0  tbz  w8, #0x0, 0xbf2b3bc
+  0xbf2b3b4  ldr  x0, [sp, #0x18]
+  0xbf2b3b8  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b3bc  adrp  x8, 0x13f9a000
+  0xbf2b3c0  ldr  x8, [x8, #0x148]
+  0xbf2b3c4  ldurb  w9, [x29, #0xffffffffffffffd8]
+  0xbf2b3c8  add  x8, x8, #0x10  ; "pc$"
+  0xbf2b3cc  str  x8, [x24]
+  0xbf2b3d0  tbz  w9, #0x0, 0xbf2b3dc
+  0xbf2b3d4  ldr  x0, [x24, #0x18]
+  0xbf2b3d8  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b3dc  sub  x0, x29, #0x30  ×48×
+  0xbf2b3e0  bl  0x135d4810  ; CALL 0x135d4810
+  0xbf2b3e4  adrp  x1, 0x26fe000
+  0xbf2b3e8  add  x1, x1, #0x9a0  ; "flatWorldOptionsHash"
+  0xbf2b3ec  add  x0, sp, #0x40  ×64×
+  0xbf2b3f0  add  x2, sp, #0x20  ×32×
+  0xbf2b3f4  mov  w3, #0x3  ×3×
+  0xbf2b3f8  mov  w4, #0x1
+  0xbf2b3fc  bl  0x9c7f628  ; CALL 0x9c7f628
+  0xbf2b400  add  x0, sp, #0x28  ×40×
+  0xbf2b404  bl  0x135d3d60  ; CALL 0x135d3d60
+  0xbf2b408  mov  x0, x20
+  0xbf2b40c  bl  0x10b1dbc4  ; CALL 0x10b1dbc4
+  0xbf2b410  mov  x21, x0
+  0xbf2b414  bl  0x11f29d84  ; CALL 0x11f29d84
+  0xbf2b418  tbz  w0, #0x0, 0xbf2b454
+  0xbf2b41c  sub  x8, x29, #0x30  ×48×
+  0xbf2b420  mov  x0, x21
+  0xbf2b424  bl  0x11f29d64  ; CALL 0x11f29d64
+  0xbf2b428  adrp  x1, 0x2681000
+  0xbf2b42c  add  x1, x1, #0x26b  ; "RequiredBaseGameVersion"
+  0xbf2b430  add  x0, sp, #0x40  ×64×
+  0xbf2b434  sub  x2, x29, #0x30  ×48×
+  0xbf2b438  mov  w3, #0xb  ×11×
+  0xbf2b43c  mov  w4, #0x1
+  0xbf2b440  bl  0x88e26b8  ; CALL 0x88e26b8
+  0xbf2b444  ldurb  w8, [x29, #0xffffffffffffffd0]
+  0xbf2b448  tbz  w8, #0x0, 0xbf2b454
+  0xbf2b44c  ldr  x0, [x24, #0x10]
+  0xbf2b450  bl  0x135d3df0  ; CALL 0x135d3df0
+  0xbf2b454  mov  x0, x20
+  0xbf2b458  bl  0x10b1da28  ; CALL 0x10b1da28
+  0xbf2b45c  ldrb  w8, [x0]
+  0xbf2b460  ldr  x9, [x0, #0x8]
+  0xbf2b464  lsr  x10, x8, #0x1
+  0xbf2b468  tst  w8, #0x1
+  0xbf2b46c  csel  x8, x10, x9, eq
+  0xbf2b470  cbz  x8, 0xbf2b490
+  0xbf2b474  mov  x2, x0
+  0xbf2b478  adrp  x1, 0x2484000
+  0xbf2b47c  add  x1, x1, #0xade  ; "EducationProductId"
+  0xbf2b480  add  x0, sp, #0x40  ×64×
+  0xbf2b484  mov  w3, #0xb  ×11×
+  0xbf2b488  mov  w4, #0x1
+  0xbf2b48c  bl  0x88e26b8  ; CALL 0x88e26b8
+  0xbf2b490  add  x1, sp, #0x40  ×64×
+  0xbf2b494  mov  x0, x19
+  0xbf2b498  bl  0xbfa5150  ; CALL 0xbfa5150
+  0xbf2b49c  add  x0, sp, #0x40  ×64×
+  0xbf2b4a0  bl  0xbfaf998  ; CALL 0xbfaf998
+  0xbf2b4a4  adrp  x0, 0x140ba000
+  0xbf2b4a8  add  x0, x0, #0x560  ×1376×
+  0xbf2b4ac  bl  0x135d3f80  ; CALL 0x135d3f80
+  0xbf2b4b0  ldr  x8, [x23, #0x28]
+  0xbf2b4b4  ldur  x9, [x29, #0xfffffffffffffff8]
+  0xbf2b4b8  cmp  x8, x9
+  0xbf2b4bc  b.ne  0xbf2b5b8
+  0xbf2b4c0  ldp  x20, x19, [sp, #0x1b0]
+  0xbf2b4c4  ldp  x22, x21, [sp, #0x1a0]
+  0xbf2b4c8  ldp  x24, x23, [sp, #0x190]
+  0xbf2b4cc  ldp  x28, x25, [sp, #0x180]
+  0xbf2b4d0  ldp  x29, x30, [sp, #0x170]
+  0xbf2b4d4  add  sp, sp, #0x1c0  ×448×
+  0xbf2b4d8  ret  
+    return_type (guess): unknown (no ret found)
+  --- callees (44) ---
+    -> 0xbfa50fc (depth limit)
+    -> 0xbfaf4b8 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x135d3d60 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x10b0ab28 (depth limit)
+    -> 0x88e2ea8 (depth limit)
+    -> 0x10b0ac44 (depth limit)
+    -> 0xbf0fa48 (depth limit)
+    -> 0x88e26b8 (depth limit)
+    -> 0x88e2840 (depth limit)
+    -> 0x10b1da20 (depth limit)
+    -> 0x88e2840 (depth limit)
+    -> 0x10b1d9d8 (depth limit)
+    -> 0x10b1d9e0 (depth limit)
+    -> 0x1127ba50 (depth limit)
+    -> 0x1127bbd0 (depth limit)
+    -> 0x135d4770 (depth limit)
+    -> 0x135d4780 (depth limit)
+    -> 0x88e26b8 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x135d4810 (depth limit)
+    -> 0x9c7f628 (depth limit)
+    -> 0x135d3d60 (depth limit)
+    -> 0x10b1dbc4 (depth limit)
+    -> 0x11f29d84 (depth limit)
+    -> 0x11f29d64 (depth limit)
+    -> 0x88e26b8 (depth limit)
+    -> 0x135d3df0 (depth limit)
+    -> 0x10b1da28 (depth limit)
+    -> 0x88e26b8 (depth limit)
+    -> 0xbfa5150 (depth limit)
+    -> 0xbfaf998 (depth limit)
+    -> 0x135d3f80 (depth limit)
+    -> 0xbf2b274 (depth limit)
+    -> 0xbf2b25c (depth limit)
+    -> 0xbf2b21c (depth limit)
+    -> 0xbf2b268 (depth limit)
+  caller @ 0xd820080 (omitted)
+  caller @ 0xf4955c8 (omitted)
+  caller @ 0x1114719c (omitted)
+  caller @ 0x11147884 (omitted)
