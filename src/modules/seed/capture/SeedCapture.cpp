@@ -23,13 +23,6 @@ std::mutex installMutex;
 seedtaker::hooks::Handle packetHook = nullptr;
 seedtaker::hooks::Handle levelInitHook = nullptr;
 seedtaker::hooks::Handle setterHook = nullptr;
-seedtaker::hooks::Handle burstHook = nullptr;
-
-// Packet band (F-092): two int64 candidates captured from the decoded
-// StartGame payload at the copy-ctor call. Same seqlock discipline as the
-// setter source — one sequence shared by the band, one value per slot.
-std::atomic<std::uint64_t> burstSeq{0};
-std::atomic<std::int64_t> burstValues[sdk::offsets::seed::PacketSeedBandCount];
 
 // Setter source (F-088): seqlock. setterSeq is odd while a write is in
 // flight, so readers retry instead of observing a torn 64-bit value.
@@ -47,7 +40,6 @@ enum SetterHookState : int {
     SetterHookLive,
 };
 std::atomic<int> setterState{SetterHookNotAttempted};
-std::atomic<int> burstState{SetterHookNotAttempted};
 
 // handle(NetworkIdentifier const&, StartGamePacket const&) — x0/x1/x2 per
 // the dispatcher tail-call (F-028). Return-type assumption (F-055): the
@@ -76,13 +68,6 @@ LevelInitialize_t originalLevelInit = nullptr;
 // statement so any result register flows through untouched regardless.
 using LevelDataSeedSetter_t = void (*)(void* _this, std::int64_t seed);
 LevelDataSeedSetter_t originalSetter = nullptr;
-
-// StartGame payload copy-ctor (F-092): copy-ctor shape, (dst, src), both
-// pointers. Return type is not proven, so the original is called LAST and
-// the detour returns void — a non-void result would be clobbered, which is
-// why this is stated explicitly rather than assumed silently.
-using PayloadCopyCtor_t = void (*)(void* dst, const void* src);
-PayloadCopyCtor_t originalCopyCtor = nullptr;
 
 void publishPacket(std::int32_t seed) {
     const auto previous = packetPacked.load(std::memory_order_relaxed);
@@ -194,63 +179,7 @@ bool installSetterHook() {
     return setterHook != nullptr;
 }
 
-// Packet-side publish (F-092): the whole band under one sequence.
-void publishBurst(const void* levelSettings) {
-    const auto begin = burstSeq.load(std::memory_order_relaxed);
-    burstSeq.store(begin + 1, std::memory_order_relaxed);
-    std::atomic_thread_fence(std::memory_order_release);
-    for (std::size_t i = 0; i < sdk::offsets::seed::PacketSeedBandCount; ++i) {
-        std::int64_t value = 0;
-        const auto at = reinterpret_cast<std::uintptr_t>(levelSettings)
-            + sdk::offsets::seed::PacketSeedBandBase
-            + i * sdk::offsets::seed::PacketSeedBandStride;
-        std::memcpy(&value, reinterpret_cast<const void*>(at), sizeof(value));
-        burstValues[i].store(value, std::memory_order_relaxed);
-    }
-    burstSeq.store(begin + 2, std::memory_order_release);
-}
-
-// The payload copy-ctor runs while the StartGame handler is decoding, i.e.
-// once per StartGame — including on servers, where the setter never fires
-// (F-092). x0 = destination (handler stack), x1 = source (LevelSettings).
-// The original call is the LAST statement so any result register survives
-// untouched (F-055 discipline).
-void payloadCopyDetour(void* dst, const void* levelSettings) {
-    if (levelSettings) publishBurst(levelSettings);
-    if (originalCopyCtor) originalCopyCtor(dst, levelSettings);
-}
-
-bool installBurstHook() {
-    const auto state = burstState.load(std::memory_order_acquire);
-    if (state == SetterHookAnchorBad || state == SetterHookInstallFail) return false;
-    const auto base = libraryBase("libminecraftpe.so");
-    if (!base) {
-        burstState.store(SetterHookUnresolved, std::memory_order_release);
-        return false;
-    }
-    std::uint32_t word0 = 0;
-    std::uint32_t word1 = 0;
-    const auto entry = base + sdk::offsets::seed::PayloadCopyCtorFileVA;
-    std::memcpy(&word0, reinterpret_cast<const void*>(entry), sizeof(word0));
-    std::memcpy(&word1, reinterpret_cast<const void*>(entry + 4), sizeof(word1));
-    if (word0 != sdk::offsets::seed::PayloadCopyCtorWord0
-        || word1 != sdk::offsets::seed::PayloadCopyCtorWord1) {
-        burstState.store(SetterHookAnchorBad, std::memory_order_release);
-        return false;
-    }
-    burstHook = seedtaker::hooks::install(reinterpret_cast<void*>(entry),
-                                          reinterpret_cast<void*>(payloadCopyDetour),
-                                          reinterpret_cast<void**>(&originalCopyCtor));
-    burstState.store(burstHook ? SetterHookLive : SetterHookInstallFail, std::memory_order_release);
-    return burstHook != nullptr;
-}
-
 void refreshStatus() {
-    if (burstHook) {
-        statusText.store(setterHook ? "capture: burst+setter" : "capture: burst (packet)",
-                         std::memory_order_release);
-        return;
-    }
     if (setterHook) {
         statusText.store("capture: setter (primary)", std::memory_order_release);
         return;
@@ -308,13 +237,8 @@ bool SeedCapture::install() {
     if (!setterHook) {
         installSetterHook();
     }
-    // Packet-side source (F-092): the only one that sees a server seed.
-    if (!burstHook) {
-        installBurstHook();
-    }
     refreshStatus();
-    return burstHook != nullptr || setterHook != nullptr || packetHook != nullptr
-        || levelInitHook != nullptr;
+    return setterHook != nullptr || packetHook != nullptr || levelInitHook != nullptr;
 }
 
 void SeedCapture::uninstall() {
@@ -332,11 +256,6 @@ void SeedCapture::uninstall() {
         setterHook = nullptr;
     }
     originalSetter = nullptr;
-    if (burstHook) {
-        seedtaker::hooks::remove(burstHook);
-        burstHook = nullptr;
-    }
-    originalCopyCtor = nullptr;
     statusText.store("capture: idle", std::memory_order_release);
 }
 
@@ -350,10 +269,6 @@ bool SeedCapture::levelInitHookActive() {
 
 bool SeedCapture::setterHookActive() {
     return setterHook != nullptr;
-}
-
-bool SeedCapture::burstHookActive() {
-    return burstHook != nullptr;
 }
 
 CaptureReading SeedCapture::packetReading() {
@@ -384,27 +299,6 @@ SetterReading SeedCapture::setterReading() {
         }
     }
     return reading; // sequence 0 = no settled reading; caller keeps state.
-}
-
-// Seqlock read of one band slot (F-092).
-PacketBandReading SeedCapture::packetBandReading(std::size_t index) {
-    PacketBandReading reading;
-    if (index >= sdk::offsets::seed::PacketSeedBandCount) return reading;
-    reading.offset = sdk::offsets::seed::PacketSeedBandBase
-        + index * sdk::offsets::seed::PacketSeedBandStride;
-    for (int attempt = 0; attempt < 8; ++attempt) {
-        const auto begin = burstSeq.load(std::memory_order_acquire);
-        if (begin & 1u) continue;
-        const auto value = burstValues[index].load(std::memory_order_relaxed);
-        std::atomic_thread_fence(std::memory_order_acquire);
-        const auto end = burstSeq.load(std::memory_order_relaxed);
-        if (begin == end) {
-            reading.sequence = begin;
-            reading.value = value;
-            return reading;
-        }
-    }
-    return reading;
 }
 
 std::uint64_t SeedCapture::rejectedPackets() {
