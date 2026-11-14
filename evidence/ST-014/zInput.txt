@@ -1,34 +1,26 @@
-# ST-014 zInput — the decrypted server seed's landing copy (issued 2026-11-14)
-# Context (F-090): StartGamePacket.seed is an int64 LE on the wire (codec v527+),
-# so our old +0xA8 int32 leg was a wrong offset. Statics say the decoded payload
-# block-copies src[0x00..0x20] into LevelData[0x00..0x20] at payload copy-ctor
-# 0x9b56e60 (ldur q0,[x1,#0xc]; ldr q1,[x1],#0x20; ...), and ab28 = src+0x0 (F-087).
-# The open question is the MP WRITE ORDER, not the location.
-# This batch dumps the COPY SOURCE path so a hook can be placed on the packet side.
-# Return zaphkiel_out-14.txt.
+# ST-014 zInput — THE payload copy-ctor (the decode seam). REVISED, run this.
+# Context: F-090 established the seed is int64 LE on the wire and lands at
+# src+0x0. F-091 found 0xa764564 calls BOTH this copy-ctor and the setter, but
+# its source is a STACK staging buffer -> it is copy #2. The copy-ctor itself
+# has NEVER been dumped: it appears only as a callee label.
+# Return zaphkiel_out-15.txt.
 #
-# Standing rules: counts != dumped contexts (F-038); callers by site VA (F-066);
-# output verbatim. Do not "fix" anything.
+# This is ONE target. It is the whole run. If it is skipped, nothing advances.
 
-# T1 (PRIMARY): the payload copy-ctor — the exact function our current ctor-hook
-# does NOT cover. Need its full body + callers to confirm it runs on MP decode.
 fn<0x9b56e60>
-# Predict: the 0x00..0x20 block copy already seen at 0x9b56e98-0x9b56ea4, then
-# per-field copies. Callers answer "does the server packet path reach this?".
+# What is needed from the output, in priority order:
+#   1. THE BODY (0x9b56e60 onward). Predict the opening block copy:
+#      ldur q0,[x1,#0xc]; ldr q1,[x1],#0x20; stur q0,[x0,#0xc]; str q1,[x0],#0x20
+#      i.e. a 16B+16B overlapping copy of src[0x00..0x20] into dst[0x00..0x20].
+#   2. THE CALLER LIST. This is the decisive part: it answers "is this function
+#      reached when a SERVER StartGamePacket is decoded?"
+#   3. Any anchor-safe prologue facts: it must be >=16 bytes and not an
+#      8-byte getter (F-073: never hook a function shorter than 16 bytes).
 
-# T2: who calls the copy-ctor's caller — one level up toward the network handler.
-# Fill in after T1 if the caller chain is cut (see T1's caller list).
+# DO NOT add other targets. Previous batches bundled many fn<> and the one that
+# mattered got crowded out; this run is deliberately single-target so the caller
+# list cannot be truncated.
 
-# T3 (independent): the int64 NBT getter used by the seed load path — confirms
-# the 64-bit wire width on the receive side too, and gives the read shape that a
-# "seed arrives as NBT/gamerule" variant would use.
-fn<0x11ba2700>
-# Predict: readLongLE-ish shape returning u64. If this is 32-bit, F-090's width
-# claim needs revisiting for this build.
-
-# T4 (cheap): the gamerule-flag writer pair that gates seed policy on servers.
-fn<0x111321a8>
-# Not the seed — but it tells us whether the server is ALLOWED to expose it,
-# i.e. whether a masked/-1 seed is a policy outcome rather than a parse failure.
-
-# Budget note: 4 targets, T1 carries the answer. If output is capped, T1 first.
+# Standing rules: counts != dumped contexts (F-038); callers by site VA (F-066);
+# output verbatim. If the tool refuses this VA, say so explicitly in the reply
+# rather than substituting a nearby address.
