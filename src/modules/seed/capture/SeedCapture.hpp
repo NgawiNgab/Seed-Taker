@@ -14,6 +14,13 @@
 //            getId() == 0x0B (F-027/F-055). Legacy int32 cross-check only:
 //            it read 0 on the big Survival Server (usr report), the field
 //            is not the 64-bit seed.
+//   burst — StartGame payload copy-ctor detour: the decoded packet's
+//            LevelSettings is copied out of the handler; this source reads
+//            the seed BAND at src+0x0C..+0x1C (F-092). This is the only
+//            source that sees a SERVER seed, because the setter never does
+//            (F-091/F-092: the packet path never calls it). The band is
+//            scanned rather than assumed: the wire says int64-first, but an
+//            unverified offset is what cost us the +0xA8 leg (F-090).
 //   object — LevelData.+0x3b0 read via slot 8 on the levelSettings object
 //            captured by the Level::initialize detour, gated on the
 //            vtable-base check (F-055). PENDING ST-009 (no LevelInit
@@ -44,6 +51,14 @@ struct SetterReading {
     std::int64_t seed = 0;
 };
 
+// One entry of the packet seed band (F-092): a 64-bit candidate read from
+// the decoded StartGame payload at LevelSettings+0x0C/+0x14.
+struct PacketBandReading {
+    std::uint64_t sequence = 0; // 0 = no capture yet.
+    std::size_t offset = 0;     // Relative to the copy source (LevelSettings).
+    std::int64_t value = 0;
+};
+
 class SeedCapture {
 public:
     // Idempotent. Returns true when at least one hook is active.
@@ -55,9 +70,12 @@ public:
     static bool packetHookActive();
     static bool levelInitHookActive();
     static bool setterHookActive();
+    static bool burstHookActive();
     static CaptureReading packetReading();
     static CaptureReading objectReading();
     static SetterReading setterReading();
+    // Packet band (F-092): index 0..PacketSeedBandCount-1.
+    static PacketBandReading packetBandReading(std::size_t index);
     // Diagnostic counters (monotonic; for HUD detail + validation).
     static std::uint64_t rejectedPackets();      // slot-37 calls failing the getId gate.
     static std::uint64_t typeMismatches();       // levelSettings failing the vtable check.

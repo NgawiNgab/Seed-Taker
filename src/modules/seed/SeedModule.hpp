@@ -86,7 +86,23 @@ private:
         std::int64_t mismatchExpected = 0;
         std::int64_t mismatchGot = 0;
     };
+    // F-089 follow-up: an expectation of 0 is not a real expectation. The
+    // src+0x64 window is all-zero on every path, so "armed, expected 0"
+    // validated a permanently-zero window and reported 0 as RECOVERED. A 0
+    // expectation is a no-op, never a match.
+    bool m_expectedSeedUsable() const { return m_hasExpectedSeed && m_expectedSeed != 0; }
     SetterState m_setter;
+    // Packet band (F-092): per-slot state for the decoded StartGame payload
+    // candidates at LevelSettings+0x0C/+0x14. One-shot validation like the
+    // src windows, but this is the ONLY band a server fills.
+    struct BandState {
+        std::uint64_t sequence = 0;
+        std::size_t offset = 0;
+        std::int64_t value = 0;
+        bool verified = false;
+        bool failed = false;
+    };
+    BandState m_band[sdk::offsets::seed::PacketSeedBandCount];
     // Src-scan windows (F-071/F-072): one state per int64 snapshot window.
     // Each window one-shots independently against the expected seed; a
     // full-int64 match is runtime validation (Recovered).
