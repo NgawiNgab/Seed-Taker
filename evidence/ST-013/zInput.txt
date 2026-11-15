@@ -1,0 +1,44 @@
+# ST-013 zInput — the 11 UNDUMPED callers of the seed setter (issued 2026-11-14)
+# Context: on-device the setter hook reports fires=164 last=-1 on a Survival
+# Server, while a LOCAL world registers the real seed (F-089: hook runs, value
+# is -1). Known caller shapes: ctor 0x111471a8 -> ab28(src)=src+0x0;
+# NBT load 0x11130800 -> RandomSeed; gated 0xa1bd1b0. The other 11 callers are
+# UNDUMPED, so "which path a network load reaches" is currently unanswerable.
+# QUESTION THIS BATCH ANSWERS: is there a registration point that a MULTIPLAYER
+# world load reaches, and what value does it pass? Yes -> fixable by re-pointing
+# the hook. No -> the client never receives the seed (design limit, not a bug).
+# Return zaphkiel_out-13.txt.
+#
+# Standing rules: counts != dumped contexts (F-038); callers by site VA, never
+# by fn label (F-066); output verbatim, no editing.
+
+# T1: caller of the GATED setSeed path (0xa1bd1b0 @ 0xa1bd23c). This is the only
+# evidence of a CONDITIONAL registration — the shape a server delivery takes.
+fn<0xa1cf6e8>
+# Predict: a guard around the call (flag/gamerule/pointer null-check). Decisive
+# either way: a network-ish guard here = the local-only hypothesis collapses.
+
+# T2: the two LevelData-TU callers (same TU as ctor 0x11146b24 + setter).
+fn<0x1112ffe8>
+fn<0x11157bd8>
+# Predict: load/apply shapes reading a member and calling setter(this, member).
+# If one of these reads a LevelData member that a packet path writes, that member
+# is the server seed's landing site -> runtime read design (not a hook).
+
+# T3: the ctor-adjacent callers.
+fn<0x11145608>
+fn<0x111496b0>
+# Predict: helpers reached from the ctor or a world-apply path. Any of these that
+# runs on MP-but-not-SP load is the answer.
+
+# T4 (cheap, independent): the remaining unclassified callers — census only.
+fn<0xa1cf72c>
+fn<0xa5d85e8>
+fn<0xa764564>
+fn<0xa77a3d4>
+fn<0xae30168>
+fn<0xb921f80>
+# Budget note: these may be large; bodies are what matter, callee trees can be
+# truncated. If output is capped, T1-T3 take priority.
+
+# Budget note: 9 fn<> targets; expect 3-8K lines total. Acceptable.

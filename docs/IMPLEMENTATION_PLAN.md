@@ -207,3 +207,84 @@ and the network path alike. DESIGN:
 
 Host syntax gate 12/12. Pending: Survival Server re-test on-device
 (the setter must report as `capture: setter (primary)`), then PR.
+
+## F-089: first runtime verdict + reporting-layer fixes
+
+On-device result of the F-088 build, two paths:
+
+- **Local world** — seed RECOVERED, exact value
+  (`-6348884760859271012`), source `level-setter:seed register`. The
+  setter hook, its script-computed `bl` anchors, the int64 seqlock and
+  the "register point, not storage" premise are all CONFIRMED working.
+- **Survival Server (Mega SMP)** — still no seed: `~-1 (INFERRED)`,
+  `src+0x0=-1`, `+0x60=1`, `+0x64..0x78=0`, `armed, expected 0`. The
+  hook reported no fault (no anchor-mismatch state), but the old build
+  could not show whether the setter FIRED there.
+
+Three defects in the reporting layer surfaced, all fixed here:
+
+1. **Placeholder rendered as a seed.** With the src windows latched, the
+   HUD fell through to the legacy int32 packet leg — which is 0 on a
+   server — and printed `~-1 (INFERRED)`, i.e. it presented the legacy
+   slot's value as a candidate seed. When the setter has fired and
+   contradicts the armed expectation, that contradiction is now the
+   answer (`setter MISMATCH: expected X got Y`), not a fall-through.
+2. **Latent mismatches latched permanently.** A mismatch at ctor-entry
+   time (a placeholder on a server) locked the window forever, so a
+   real value arriving later could never validate. Mismatches are now
+   re-checked; only matches latch.
+3. **`armed, expected 0`.** `saveConfig` wrote `validateExpectedSeed=0`
+   for "unset", and `loadConfig` sets `hasExpectedSeed=true`
+   unconditionally — so an unconfigured or cleared install returned as
+   a REAL expected seed of 0. The key is now omitted when unset.
+
+Diagnostics added: an always-rendered `setter: fires=N last=V` line.
+This is the line that decides the open question — `fires=0` means the
+server seed never passes through `0x111463bc` (F-086's
+single-registration premise falsified for the MP path, next probe = the
+13 other callers); `fires=N` means it does and only the value is in
+question.
+
+Also added: `tools/hostgate/` — the host syntax gate now lives in the
+repo (stubs + script) instead of `/tmp`, which was being wiped between
+sessions. Still not a substitute for CI; it catches type errors only.
+
+## F-093: packet-side seed capture (the server leg)
+
+Why: F-091/F-092 proved the setter is a world-settings randomizer and the
+StartGame handler never calls it, so no amount of setter work can ever
+yield a server seed. The decoded packet is the only place the server's
+value exists client-side.
+
+Where: the handler copies the decoded payload with
+`add x0, sp, #0x7d0; add x1, x20, #0x30; bl 0x9b56e60` (0xa2fabcc..
+0xa2fabd4), `x20` = packet. So the copy SOURCE is `packet+0x30` =
+LevelSettings, and it runs on every StartGame including servers.
+
+How: pre-hook `0x9b56e60` (VA + two anchor words, refuse-on-mismatch),
+snapshot a **16-byte band** at source `+0x0C` and `+0x14`, publish via
+seqlock. Two slots, not one, deliberately: the copy proves the seed lies
+somewhere in `src+0x0C..0x1C` but the exact index is inferred from the
+codec, and an unverified offset is exactly the mistake behind `+0xA8`.
+
+Selection: verified src window > verified band slot > setter > legacy
+packet/object.
+
+Safety properties, stated so they can be checked:
+
+- An **unverified** band value never enters the seed display. It appears
+  only on the `packet band:` line, marked `?`.
+- A `0` expected seed is a **no-op** everywhere, because the `src+0x64`
+  control window is all-zero on every path and previously "matched" it,
+  reporting `0 [recovered]`.
+- The original copy-ctor is called LAST, so any result register survives.
+
+Read-out for the next run:
+
+| HUD line | Meaning |
+|---|---|
+| `packet band: none (hooked, no StartGame yet)` | hook installed, no StartGame seen |
+| `packet band: +0xc=… ?  +0x14=… ?` | hook ran, candidates unvalidated — supply a known seed |
+| `+0xc=… <SEED>` | that slot matched a known seed: offset CONFIRMED, now the seed source |
+
+Local world first (known seed picks the slot), then Mega SMP.

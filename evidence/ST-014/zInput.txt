@@ -1,0 +1,26 @@
+# ST-014 zInput — THE payload copy-ctor (the decode seam). REVISED, run this.
+# Context: F-090 established the seed is int64 LE on the wire and lands at
+# src+0x0. F-091 found 0xa764564 calls BOTH this copy-ctor and the setter, but
+# its source is a STACK staging buffer -> it is copy #2. The copy-ctor itself
+# has NEVER been dumped: it appears only as a callee label.
+# Return zaphkiel_out-15.txt.
+#
+# This is ONE target. It is the whole run. If it is skipped, nothing advances.
+
+fn<0x9b56e60>
+# What is needed from the output, in priority order:
+#   1. THE BODY (0x9b56e60 onward). Predict the opening block copy:
+#      ldur q0,[x1,#0xc]; ldr q1,[x1],#0x20; stur q0,[x0,#0xc]; str q1,[x0],#0x20
+#      i.e. a 16B+16B overlapping copy of src[0x00..0x20] into dst[0x00..0x20].
+#   2. THE CALLER LIST. This is the decisive part: it answers "is this function
+#      reached when a SERVER StartGamePacket is decoded?"
+#   3. Any anchor-safe prologue facts: it must be >=16 bytes and not an
+#      8-byte getter (F-073: never hook a function shorter than 16 bytes).
+
+# DO NOT add other targets. Previous batches bundled many fn<> and the one that
+# mattered got crowded out; this run is deliberately single-target so the caller
+# list cannot be truncated.
+
+# Standing rules: counts != dumped contexts (F-038); callers by site VA (F-066);
+# output verbatim. If the tool refuses this VA, say so explicitly in the reply
+# rather than substituting a nearby address.
