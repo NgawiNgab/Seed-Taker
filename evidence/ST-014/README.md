@@ -59,3 +59,33 @@ Only the timing/ownership of `sp+0x7d0` after the handler returns — i.e.
 where the decoded settings object is *handed off*. The seed's location on
 the packet side is settled: `packet+0x30+0x0C` at the copy, `sp+0x7d0+0x0C`
 after it.
+
+---
+
+## CORRECTION (2026-11-14, from the Lumina Client study — F-097)
+
+§1 above says the overlapping q0/q1 stores "fill dst+0x00..0x0C from
+src+0x0C..0x1C, which is `[u64 seed, u16 spawnBiomeType]`". The seed
+location (`LevelSettings +0x0C`) is **right**; the bracket is **off by
+four bytes**. The pair is `+0x0C` (u64 seed) and `+0x14` (u16
+spawnBiomeType) — if the seed ended at `+0x14`, spawnBiomeType could not
+start there without padding, and `buffer.writeShortLE` at `+0x14` needs
+none.
+
+Also, the opening four instructions are **one 28-byte inlined `memcpy`**
+covering `[src+0x00, src+0x1C)` completely, not four independent copies.
+`ldr q1,[x1],#0x20` is a post-index load: it reads at `x1` and only then
+adds `0x20`. Two 16-byte accesses at offsets `0` and `0x0C` are clang's
+`memcpy(N)` idiom for `16 < N <= 32` (`N - 16 == 0x0C` ⇒ `N = 0x1C`).
+The `+0x00` start is explained by `algorithmVersion`, written before the
+seed by the v419/v534/v671 serializers.
+
+Two further facts from the same body, for whoever reads this next:
+`src+0x30` is a **u16** (`ldrh/strh` at `0x9b56eb4/eb8`) — not a seed
+word; and **the seed has no dedicated load in this function at all**, it
+only moves inside those two vector stores, which is why the band has to
+be sampled *before* the call rather than after.
+
+Nothing in §2–§4 is affected. The location and the seam are unchanged;
+this is arithmetic hygiene in the "what covers what" sentence, recorded
+here rather than silently edited because §1 was filed as a finding.
